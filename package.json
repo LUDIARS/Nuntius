@@ -1,0 +1,29 @@
+{
+  "name": "nuntius",
+  "version": "0.1.0",
+  "description": "LUDIARS 統合通知・メッセージング基盤 (SQS/SNS 的)",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "ci-check": "bash scripts/ci-check.sh",
+    "env:setup": "npx tsx ../Cernere/packages/env-cli/src/cli.ts setup",
+    "env:env": "npx tsx ../Cernere/packages/env-cli/src/cli.ts env",
+    "env:initialize": "npx tsx ../Cernere/packages/env-cli/src/cli.ts initialize",
+    "env:list": "npx tsx ../Cernere/packages/env-cli/src/cli.ts list",
+    "env:get": "npx tsx ../Cernere/packages/env-cli/src/cli.ts get",
+    "env:set": "npx tsx ../Cernere/packages/env-cli/src/cli.ts set",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LUDIARS/Nuntius.git"
+  }
+}
