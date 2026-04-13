@@ -8,6 +8,7 @@ import { logger } from "hono/logger";
 import { projectAuth } from "./middleware/auth.js";
 import { messagesRoutes } from "./routes/messages.js";
 import { topicsRoutes } from "./routes/topics.js";
+import { templatesRoutes } from "./routes/templates.js";
 import { supportedChannels } from "./channels/index.js";
 
 export function createApp() {
@@ -41,9 +42,11 @@ export function createApp() {
   // 認証必須エンドポイント
   app.use("/api/messages/*", projectAuth());
   app.use("/api/topics/*", projectAuth());
+  app.use("/api/templates/*", projectAuth());
 
   app.route("/api/messages", messagesRoutes);
   app.route("/api/topics", topicsRoutes);
+  app.route("/api/templates", templatesRoutes);
 
   app.get("/", (c) => {
     return c.json({
@@ -53,6 +56,7 @@ export function createApp() {
       endpoints: {
         messages: "/api/messages/{schedule, :id}",
         topics: "/api/topics/:topic/{publish, subscribe}",
+        templates: "/api/templates",
         health: "/api/health",
       },
       channels: supportedChannels(),
