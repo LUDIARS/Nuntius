@@ -1,0 +1,43 @@
+## ─── Docker Compose (Nuntius) ────────────────────────
+##
+## 共有インフラ (../infra) を前提。アプリのみ起動。
+## 単体運用時は docker-compose.standalone.yaml を重ねる:
+##   docker compose -f docker-compose.yaml -f docker-compose.standalone.yaml up -d
+
+services:
+  # ─── API ────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: prod
+    command: ["node", "dist/src/index.js"]
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-3100}:3100"
+    environment:
+      BACKEND_PORT: ${BACKEND_PORT:-3100}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://nuntius_user:nuntius@host.docker.internal:5432/nuntius}
+      REDIS_URL: ${REDIS_URL:-redis://host.docker.internal:6379}
+      CERNERE_URL: ${CERNERE_URL:-}
+      CERNERE_PROJECT_CLIENT_ID: ${CERNERE_PROJECT_CLIENT_ID:-}
+      CERNERE_PROJECT_CLIENT_SECRET: ${CERNERE_PROJECT_CLIENT_SECRET:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+      SLACK_DEFAULT_WEBHOOK_URL: ${SLACK_DEFAULT_WEBHOOK_URL:-}
+      DISCORD_DEFAULT_WEBHOOK_URL: ${DISCORD_DEFAULT_WEBHOOK_URL:-}
+      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-}
+
+  # ─── Worker (別プロセス) ──────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: prod
+    command: ["node", "dist/src/worker.js"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://nuntius_user:nuntius@host.docker.internal:5432/nuntius}
+      REDIS_URL: ${REDIS_URL:-redis://host.docker.internal:6379}
+      SLACK_DEFAULT_WEBHOOK_URL: ${SLACK_DEFAULT_WEBHOOK_URL:-}
+      DISCORD_DEFAULT_WEBHOOK_URL: ${DISCORD_DEFAULT_WEBHOOK_URL:-}
+      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-}
