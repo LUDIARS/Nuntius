@@ -1,0 +1,59 @@
+# Nuntius — スタンドアロン (PostgreSQL + Redis 込み)
+#
+# 共有インフラなしで単体起動する場合に docker-compose.yaml と重ねる。
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nuntius}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nuntius}
+      POSTGRES_DB: ${POSTGRES_DB:-nuntius}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nuntius}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-nuntius}:${POSTGRES_PASSWORD:-nuntius}@db:5432/${POSTGRES_DB:-nuntius}"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-nuntius}:${POSTGRES_PASSWORD:-nuntius}@db:5432/${POSTGRES_DB:-nuntius}"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:
