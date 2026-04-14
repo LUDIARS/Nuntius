@@ -1,21 +1,72 @@
 /**
- * Email 配信 (SMTP 経由)
+ * Email 配信 (SMTP / nodemailer)
  *
  * payload:
- *   to:      string | string[]  — 送信先
+ *   to:      string | string[]
  *   subject: string
- *   text:    string  (任意)
- *   html:    string  (任意)
+ *   text?:   string
+ *   html?:   string
+ *   cc?:     string | string[]
+ *   bcc?:    string | string[]
+ *   replyTo?: string
  *
  * 環境変数:
- *   SMTP_URL        — 例: smtp://user:pass@smtp.example.com:587
- *   SMTP_FROM       — From アドレス
+ *   SMTP_URL   例: smtp://user:pass@smtp.example.com:587
+ *              または smtps://... / smtp://... (ローカル MTA)
+ *   SMTP_FROM  From アドレス (必須: 未設定なら noreply@localhost)
  *
- * SMTP_URL が未設定なら配信成功扱いでログのみ (dev 用)。
+ * SMTP_URL が未設定の場合は dev モードでログのみ出力する。
  */
 
 import type { ChannelDispatcher, DispatchResult } from "./types.js";
 import type { ScheduledMessage } from "../db/schema.js";
+
+// nodemailer Transporter キャッシュ (モジュール単位で 1 つ)
+let transporterPromise: Promise<unknown> | null = null;
+
+async function getTransporter(): Promise<unknown | null> {
+  const smtpUrl = process.env.SMTP_URL ?? "";
+  if (!smtpUrl) return null;
+
+  if (!transporterPromise) {
+    transporterPromise = (async () => {
+      try {
+        const mod = (await import("nodemailer")) as {
+          default?: { createTransport: (url: string) => unknown };
+          createTransport?: (url: string) => unknown;
+        };
+        const create = mod.default?.createTransport ?? mod.createTransport;
+        if (!create) {
+          console.warn("[email] nodemailer.createTransport not found");
+          return null;
+        }
+        return create(smtpUrl);
+      } catch (err) {
+        console.warn(
+          "[email] nodemailer load failed:",
+          err instanceof Error ? err.message : err,
+        );
+        return null;
+      }
+    })();
+  }
+  return transporterPromise;
+}
+
+interface MailOptions {
+  from: string;
+  to: string | string[];
+  subject: string;
+  text?: string;
+  html?: string;
+  cc?: string | string[];
+  bcc?: string | string[];
+  replyTo?: string;
+}
+
+interface Transporter {
+  sendMail(opts: MailOptions): Promise<{ messageId?: string; response?: string }>;
+}
 
 export const emailDispatcher: ChannelDispatcher = {
   channel: "email",
@@ -26,20 +77,40 @@ export const emailDispatcher: ChannelDispatcher = {
     if (!to || !subject) {
       return { success: false, error: "email payload requires 'to' and 'subject'" };
     }
-
-    const smtpUrl = process.env.SMTP_URL ?? "";
-    const from = process.env.SMTP_FROM ?? "noreply@example.com";
-
-    if (!smtpUrl) {
-      // 未設定時は dev モードとして成功扱いでログのみ
-      console.log(`[email:dev] TO=${Array.isArray(to) ? to.join(",") : to} SUBJECT=${subject}`);
-      return { success: true, responseBody: "dev mode (no SMTP configured)" };
+    if (!p.text && !p.html) {
+      return { success: false, error: "email payload requires 'text' or 'html'" };
     }
 
-    // nodemailer を optional dependency にするのを避けるため、
-    // Phase 1 では fetch ベースの SMTP は実装せず、dev モード or 他サービス連携に留める。
-    // Phase 2 で nodemailer 追加予定。
-    console.warn("[email] SMTP 実送信は Phase 2 で実装予定。現状 dev モードのみ");
-    return { success: true, responseBody: "Phase 1: email log-only" };
+    const transporter = (await getTransporter()) as Transporter | null;
+    const from = process.env.SMTP_FROM ?? "noreply@localhost";
+
+    if (!transporter) {
+      console.log(
+        `[email:dev] FROM=${from} TO=${Array.isArray(to) ? to.join(",") : to} SUBJECT=${subject}`,
+      );
+      return { success: true, responseBody: "dev mode (SMTP_URL not configured)" };
+    }
+
+    try {
+      const res = await transporter.sendMail({
+        from,
+        to,
+        subject,
+        text: p.text as string | undefined,
+        html: p.html as string | undefined,
+        cc: p.cc as string | string[] | undefined,
+        bcc: p.bcc as string | string[] | undefined,
+        replyTo: p.replyTo as string | undefined,
+      });
+      return {
+        success: true,
+        responseBody: res.messageId ? `messageId=${res.messageId}` : res.response ?? "sent",
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   },
 };

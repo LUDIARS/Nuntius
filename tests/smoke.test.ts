@@ -7,7 +7,7 @@ import { supportedChannels, getDispatcher } from "../src/channels/index.js";
 import { renderTemplate } from "../src/routes/templates.js";
 
 describe("Nuntius smoke", () => {
-  it("supportedChannels に主要チャネルが全部含まれる", () => {
+  it("supportedChannels に全チャネルが含まれる", () => {
     const channels = supportedChannels();
     expect(channels).toContain("slack");
     expect(channels).toContain("discord");
@@ -16,6 +16,8 @@ describe("Nuntius smoke", () => {
     expect(channels).toContain("email");
     expect(channels).toContain("voice");
     expect(channels).toContain("alexa");
+    expect(channels).toContain("sms");
+    expect(channels).toContain("web");
   });
 
   it("各チャネルに dispatcher が紐付いている", () => {
@@ -24,10 +26,6 @@ describe("Nuntius smoke", () => {
       expect(d).not.toBeNull();
       expect(d?.channel).toBe(ch);
     }
-  });
-
-  it("未サポートチャネル (sms) は null を返す", () => {
-    expect(getDispatcher("sms")).toBeNull();
   });
 });
 

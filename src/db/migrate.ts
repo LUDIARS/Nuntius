@@ -86,5 +86,22 @@ export async function ensureSchema(): Promise<void> {
   await pgClient`CREATE INDEX IF NOT EXISTS idx_log_message ON delivery_logs(message_id)`;
   await pgClient`CREATE INDEX IF NOT EXISTS idx_log_attempted ON delivery_logs(attempted_at)`;
 
+  // web_notifications (in-app inbox)
+  await pgClient`
+    CREATE TABLE IF NOT EXISTS web_notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      message_id TEXT,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      metadata JSONB NOT NULL DEFAULT '{}',
+      read_at TIMESTAMPTZ,
+      project_key TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_web_notif_user ON web_notifications(user_id, created_at)`;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_web_notif_unread ON web_notifications(user_id, read_at)`;
+
   console.log("[db] schema 確認完了");
 }

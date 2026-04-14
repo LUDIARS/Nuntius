@@ -11,6 +11,8 @@ import { webhookDispatcher } from "./webhook.js";
 import { emailDispatcher } from "./email.js";
 import { voiceDispatcher } from "./voice.js";
 import { alexaDispatcher } from "./alexa.js";
+import { smsDispatcher } from "./sms.js";
+import { webDispatcher } from "./web.js";
 
 const dispatchers: Partial<Record<ChannelType, ChannelDispatcher>> = {
   slack: slackDispatcher,
@@ -20,7 +22,8 @@ const dispatchers: Partial<Record<ChannelType, ChannelDispatcher>> = {
   email: emailDispatcher,
   voice: voiceDispatcher,
   alexa: alexaDispatcher,
-  // sms は Phase 2 で AWS SNS 経由で追加予定
+  sms: smsDispatcher,
+  web: webDispatcher,
 };
 
 export function getDispatcher(channel: ChannelType): ChannelDispatcher | null {

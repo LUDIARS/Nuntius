@@ -19,8 +19,10 @@ import {
 } from "drizzle-orm/pg-core";
 
 // ─── Channel 型 ──────────────────────────────────────────────
-// 現在対応: slack / discord / line / webhook
-// Phase 2+: alexa / email / sms / voice (Imperativus リレー)
+// 対応チャネル:
+//   slack / discord / line / webhook
+//   email / sms / alexa / voice (Imperativus リレー)
+//   web: in-app 通知 (Nuntius に保存し、クライアントが REST で取得)
 export type ChannelType =
   | "slack"
   | "discord"
@@ -29,7 +31,8 @@ export type ChannelType =
   | "alexa"
   | "email"
   | "sms"
-  | "voice";
+  | "voice"
+  | "web";
 
 export type MessageStatus =
   | "pending"    // キュー投入済、送信待ち
@@ -152,6 +155,31 @@ export const deliveryLogs = pgTable(
   ],
 );
 
+// ─── Web (in-app) Notifications ─────────────────────────
+// web チャネルで配信されたメッセージをユーザー単位で保存する。
+// クライアントは GET /api/messages/inbox?userId= で取得、POST /:id/read で既読化。
+
+export const webNotifications = pgTable(
+  "web_notifications",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    /** 元となった scheduled_messages.id (配信経路を辿れるよう保持) */
+    messageId: text("message_id"),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    /** チャネル固有のメタ情報 (link URL, icon 等) */
+    metadata: jsonb("metadata").notNull().default({}),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    projectKey: text("project_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("idx_web_notif_user").on(t.userId, t.createdAt),
+    index("idx_web_notif_unread").on(t.userId, t.readAt),
+  ],
+);
+
 // ─── Types ────────────────────────────────────────────────
 
 export type ScheduledMessage = typeof scheduledMessages.$inferSelect;
@@ -162,3 +190,5 @@ export type MessageTemplate = typeof messageTemplates.$inferSelect;
 export type NewMessageTemplate = typeof messageTemplates.$inferInsert;
 export type DeliveryLog = typeof deliveryLogs.$inferSelect;
 export type NewDeliveryLog = typeof deliveryLogs.$inferInsert;
+export type WebNotification = typeof webNotifications.$inferSelect;
+export type NewWebNotification = typeof webNotifications.$inferInsert;

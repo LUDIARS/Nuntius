@@ -9,6 +9,7 @@ import { projectAuth } from "./middleware/auth.js";
 import { messagesRoutes } from "./routes/messages.js";
 import { topicsRoutes } from "./routes/topics.js";
 import { templatesRoutes } from "./routes/templates.js";
+import { inboxRoutes } from "./routes/inbox.js";
 import { supportedChannels } from "./channels/index.js";
 
 export function createApp() {
@@ -43,10 +44,12 @@ export function createApp() {
   app.use("/api/messages/*", projectAuth());
   app.use("/api/topics/*", projectAuth());
   app.use("/api/templates/*", projectAuth());
+  app.use("/api/inbox/*", projectAuth());
 
   app.route("/api/messages", messagesRoutes);
   app.route("/api/topics", topicsRoutes);
   app.route("/api/templates", templatesRoutes);
+  app.route("/api/inbox", inboxRoutes);
 
   app.get("/", (c) => {
     return c.json({
@@ -57,6 +60,7 @@ export function createApp() {
         messages: "/api/messages/{schedule, :id}",
         topics: "/api/topics/:topic/{publish, subscribe}",
         templates: "/api/templates",
+        inbox: "/api/inbox?userId={id}",
         health: "/api/health",
       },
       channels: supportedChannels(),
