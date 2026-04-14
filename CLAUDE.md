@@ -38,6 +38,52 @@ Cernere に従う (RULE.md 準拠):
 
 `bash scripts/ci-check.sh` (実装後): TypeScript build + test + lint。
 
+## WebSocket (`/ws`)
+
+Nuntius は REST と同じビジネスロジックを WS 経由でも公開する。
+
+### 接続
+
+```
+GET /ws?token=<token>
+```
+
+- `token` は Cernere が発行した JWT。以下のどちらも受け付ける:
+  - **project_token** (`/api/auth/login` grant_type=project_credentials で取得) — 他サービスからの接続
+  - **user_token** (Cernere ユーザーログイン後の accessToken) — エンドユーザー直接接続
+- Cernere の `/api/auth/verify` でトークン種別を判定し、`projectKey` または `userId` を
+  セッションにバインドする
+- 30 秒間隔で `ping`/`pong`、40 秒無応答で強制切断 (RULE.md 準拠)
+
+### プロトコル
+
+```jsonc
+// 接続成功時
+{ "type": "connected", "session_id": "...", "kind": "project"|"user", "project_key"?: "...", "user_id"?: "..." }
+
+// クライアント → Nuntius
+{ "type": "module_request", "request_id": "req_1", "module": "nuntius", "action": "schedule", "payload": {...} }
+
+// Nuntius → クライアント (成功)
+{ "type": "module_response", "request_id": "req_1", "module": "nuntius", "action": "schedule", "payload": {...} }
+
+// Nuntius → クライアント (エラー)
+{ "type": "error", "request_id": "req_1", "code": "command_error", "message": "..." }
+```
+
+### 対応コマンド (`module: "nuntius"`)
+
+| action     | 説明                                           | payload                                                                 | 備考 |
+|------------|------------------------------------------------|-------------------------------------------------------------------------|------|
+| `schedule` | 時間指定メッセージを登録 (REST `POST /api/messages/schedule` と同等) | `{ userId, channel, sendAt, payload, templateId?, recurrenceRule?, idempotencyKey?, ... }` | project token 必須 |
+| `cancel`   | 予約メッセージをキャンセル                     | `{ id }`                                                                | project token 必須 |
+| `publish`  | トピックに即時配信 (REST `POST /api/topics/:topic/publish` と同等) | `{ topic, channel?, payload, sendAt?, source? }`                        | project token 必須 |
+| `subscribe`| トピック購読を登録                             | `{ topic, userId?, channel, endpoint? }`                                | project token 必須 (`userId` 省略時は session の userId) |
+| `list_my`  | 自分 (または指定ユーザー) の予約/inbox 一覧    | `{ userId?, limit?, includeInbox? }`                                    | project token 必須 |
+
+> いずれも `ctx.projectKey` が必須。user_token 単体では `project context required` エラーが返る
+> (ユーザー直接呼び出しを許可するコマンドは今後追加予定)。
+
 ## 移行ロードマップ
 
 - **Phase 1**: 骨格実装 (queue/dispatcher/Slack/Discord/LINE)

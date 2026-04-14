@@ -11,8 +11,13 @@ import { topicsRoutes } from "./routes/topics.js";
 import { templatesRoutes } from "./routes/templates.js";
 import { inboxRoutes } from "./routes/inbox.js";
 import { supportedChannels } from "./channels/index.js";
+import { setupWebSocket } from "./ws/handler.js";
+import { registerNuntiusCommands } from "./ws/register-commands.js";
 
 export function createApp() {
+  // WS コマンドを必ず登録 (multi-invocation safe)
+  registerNuntiusCommands();
+
   const app = new Hono();
 
   app.onError((err, c) => {
@@ -61,11 +66,14 @@ export function createApp() {
         topics: "/api/topics/:topic/{publish, subscribe}",
         templates: "/api/templates (CRUD / :id/render / mentions?channel=)",
         inbox: "/api/inbox?userId={id}",
+        ws: "/ws?token=<project_or_user_token> (nuntius.schedule|cancel|publish|subscribe|list_my)",
         health: "/api/health",
       },
       channels: supportedChannels(),
     });
   });
 
-  return app;
+  // WebSocket エンドポイント (nuntius.* コマンド受付)
+  const { injectWebSocket } = setupWebSocket(app);
+  return { app, injectWebSocket };
 }

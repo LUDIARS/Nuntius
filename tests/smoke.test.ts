@@ -6,6 +6,8 @@ import { describe, it, expect } from "vitest";
 import { supportedChannels, getDispatcher } from "../src/channels/index.js";
 import { renderTemplate, renderPattern } from "../src/routes/templates.js";
 import { computeNextSendAt, isValidRecurrenceRule } from "../src/queue/recurrence.js";
+import { registerNuntiusCommands } from "../src/ws/register-commands.js";
+import { listCommands } from "../src/ws/dispatcher.js";
 
 describe("Nuntius smoke", () => {
   it("supportedChannels に全チャネルが含まれる", () => {
@@ -129,5 +131,21 @@ describe("recurrence", () => {
     expect(isValidRecurrenceRule("daily")).toBe(true);
     expect(isValidRecurrenceRule("0 0 * * *")).toBe(true);
     expect(isValidRecurrenceRule("every:5m")).toBe(true);
+  });
+});
+
+describe("WS コマンド登録", () => {
+  it("registerNuntiusCommands で nuntius.* が全て登録される", () => {
+    registerNuntiusCommands();
+    const commands = listCommands().filter((c) => c.module === "nuntius");
+    const actions = commands.map((c) => c.action).sort();
+    expect(actions).toEqual(["cancel", "list_my", "publish", "schedule", "subscribe"]);
+  });
+
+  it("二度呼んでも重複登録されない (idempotent)", () => {
+    registerNuntiusCommands();
+    registerNuntiusCommands();
+    const count = listCommands().filter((c) => c.module === "nuntius").length;
+    expect(count).toBe(5);
   });
 });
