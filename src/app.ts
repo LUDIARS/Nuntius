@@ -59,7 +59,7 @@ export function createApp() {
       endpoints: {
         messages: "/api/messages/{schedule, :id}",
         topics: "/api/topics/:topic/{publish, subscribe}",
-        templates: "/api/templates",
+        templates: "/api/templates (CRUD / :id/render / mentions?channel=)",
         inbox: "/api/inbox?userId={id}",
         health: "/api/health",
       },

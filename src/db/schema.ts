@@ -109,23 +109,37 @@ export const topicSubscriptions = pgTable(
   ],
 );
 
-// ─── Message Templates (テンプレート) ────────────────────
+// ─── Notification Patterns (旧称: Message Templates) ───────
+// 通知パターン = 「名前 + チャネル + 本文テンプレート + プレースホルダ定義 + メンション候補」。
+// 送信側は patternId (templateId) を指定するだけで、worker がパターンを引いて
+// payload の values を {{var}} に差し込み、mentions を channel ごとに解決して注入する。
 
 export const messageTemplates = pgTable(
   "message_templates",
   {
     id: text("id").primaryKey(),
+    /** パターン名 (表示用・一意) */
     name: text("name").notNull(),
+    /** 任意の説明 (管理 UI 用) */
+    description: text("description"),
     /** チャネル ("all" で全チャネル共通) */
     channel: text("channel").$type<ChannelType | "all">().notNull().default("all"),
     /** 言語コード (ja, en, ...) */
     locale: text("locale").notNull().default("ja"),
-    /** 件名 (任意) */
+    /** 件名 (任意、email 等で利用、プレースホルダ対応) */
     subject: text("subject"),
-    /** 本文 (プレースホルダ {{var}} 対応) */
+    /** 本文 (プレースホルダ {{var}} / メンション {{@key}} 対応) */
     body: text("body").notNull(),
-    /** プレースホルダ定義 */
+    /**
+     * プレースホルダ定義 (サジェスト用)
+     * 形式: [{ name, label?, required?, example?, description? }]
+     */
     variables: jsonb("variables").notNull().default([]),
+    /**
+     * メンション候補 (サジェスト用)
+     * 形式: [{ key, label, channelValues: { slack?: "<@U123>", discord?: "<@123>", line?: "@user", web?: "@name" } }]
+     */
+    mentions: jsonb("mentions").notNull().default([]),
     projectKey: text("project_key").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from "vitest";
 import { supportedChannels, getDispatcher } from "../src/channels/index.js";
-import { renderTemplate } from "../src/routes/templates.js";
+import { renderTemplate, renderPattern } from "../src/routes/templates.js";
 import { computeNextSendAt, isValidRecurrenceRule } from "../src/queue/recurrence.js";
 
 describe("Nuntius smoke", () => {
@@ -44,6 +44,53 @@ describe("renderTemplate", () => {
   it("数値も文字列化される", () => {
     expect(renderTemplate("count: {{n}}", { n: 42 }))
       .toBe("count: 42");
+  });
+});
+
+describe("renderPattern (通知パターン)", () => {
+  const basePattern = {
+    subject: "Hello {{name}}",
+    body: "Hi {{name}}, ping {{@alice}} please",
+    mentions: [
+      {
+        key: "alice",
+        label: "Alice",
+        channelValues: { slack: "<@U123>", discord: "<@999>" },
+      },
+    ],
+  };
+
+  it("values を差し込み、channel に合わせて mention を解決する (slack)", () => {
+    const r = renderPattern(basePattern, { values: { name: "Bob" }, channel: "slack" });
+    expect(r.subject).toBe("Hello Bob");
+    expect(r.body).toBe("Hi Bob, ping <@U123> please");
+  });
+
+  it("別チャネルでは別の mention 値を使う (discord)", () => {
+    const r = renderPattern(basePattern, { values: { name: "Bob" }, channel: "discord" });
+    expect(r.body).toBe("Hi Bob, ping <@999> please");
+  });
+
+  it("channel 未対応の mention は label にフォールバック", () => {
+    const r = renderPattern(basePattern, { values: { name: "Bob" }, channel: "line" });
+    expect(r.body).toBe("Hi Bob, ping Alice please");
+  });
+
+  it("extraMentions は pattern の mentions を上書きできる", () => {
+    const r = renderPattern(basePattern, {
+      values: { name: "Bob" },
+      channel: "slack",
+      extraMentions: [{ key: "alice", label: "A", channelValues: { slack: "<@OVERRIDE>" } }],
+    });
+    expect(r.body).toBe("Hi Bob, ping <@OVERRIDE> please");
+  });
+
+  it("未知の mention key は空文字に置換", () => {
+    const r = renderPattern(
+      { subject: null, body: "ping {{@unknown}} end", mentions: [] },
+      { values: {} },
+    );
+    expect(r.body).toBe("ping  end");
   });
 });
 

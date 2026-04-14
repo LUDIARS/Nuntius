@@ -12,6 +12,7 @@ import { db, schema } from "./db/connection.js";
 import { redisConnection } from "./queue/connection.js";
 import { DISPATCH_QUEUE_NAME, enqueueMessage, type DispatchJobData } from "./queue/dispatch-queue.js";
 import { computeNextSendAt } from "./queue/recurrence.js";
+import { resolveTemplate } from "./queue/pattern-resolver.js";
 import { getDispatcher } from "./channels/index.js";
 
 async function processDispatch(job: Job<DispatchJobData>): Promise<void> {
@@ -46,7 +47,9 @@ async function processDispatch(job: Job<DispatchJobData>): Promise<void> {
     return;
   }
 
-  const result = await dispatcher.dispatch(msg);
+  // templateId があればパターンを解決し payload にレンダー結果を差し込む
+  const resolvedMsg = await resolveTemplate(msg);
+  const result = await dispatcher.dispatch(resolvedMsg);
   await logDelivery(
     messageId,
     msg.channel,
