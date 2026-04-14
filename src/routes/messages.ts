@@ -8,6 +8,7 @@ import { eq, and } from "drizzle-orm";
 import { db, schema } from "../db/connection.js";
 import type { ChannelType } from "../db/schema.js";
 import { enqueueMessage, cancelMessage } from "../queue/dispatch-queue.js";
+import { isValidRecurrenceRule } from "../queue/recurrence.js";
 import { getProjectKey } from "../middleware/auth.js";
 import { getDispatcher } from "../channels/index.js";
 
@@ -42,6 +43,10 @@ messagesRoutes.post("/schedule", async (c) => {
   const sendAt = new Date(body.sendAt);
   if (isNaN(sendAt.getTime())) {
     return c.json({ error: "Invalid sendAt" }, 400);
+  }
+
+  if (body.recurrenceRule && !isValidRecurrenceRule(body.recurrenceRule)) {
+    return c.json({ error: `Invalid recurrenceRule: ${body.recurrenceRule}` }, 400);
   }
 
   // idempotency 確認
