@@ -1,12 +1,9 @@
 /**
  * Nuntius backend API クライアント
  *
- * project_token (Cernere 発行) を Authorization: Bearer でそのまま送る。
- * token は localStorage に保存 (ブラウザ限定。本番環境では Cernere Composite などで
- * HttpOnly Cookie 化する想定だが、管理 UI としては十分)。
+ * 認証は Cernere Composite (HttpOnly Cookie) 経由。
+ * すべての fetch は `credentials: 'include'` で Cookie を送信する。
  */
-
-const STORAGE_KEY = 'nuntius.admin.project_token'
 
 export const CHANNELS = [
   'slack', 'discord', 'line', 'webhook',
@@ -75,37 +72,40 @@ export interface MentionSuggestion {
   value: string
 }
 
-// ── token ─────────────────────────────────────────────
-
-export function getProjectToken(): string | null {
-  try {
-    return localStorage.getItem(STORAGE_KEY)
-  } catch {
-    return null
-  }
+export interface CurrentUser {
+  id: string
+  name: string
+  email: string
+  role: string
 }
 
-export function setProjectToken(t: string): void {
-  localStorage.setItem(STORAGE_KEY, t)
-}
-
-export function clearProjectToken(): void {
-  localStorage.removeItem(STORAGE_KEY)
+export interface CompositeAuthResponse {
+  authCode?: string
+  mfaRequired?: boolean
+  mfaMethods?: string[]
+  mfaToken?: string
 }
 
 // ── fetch ─────────────────────────────────────────────
 
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
 async function request<T>(
-  token: string,
   method: string,
   path: string,
   body?: unknown,
 ): Promise<T> {
   const res = await fetch(path, {
     method,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
@@ -120,24 +120,13 @@ async function request<T>(
   return data as T
 }
 
-export class ApiError extends Error {
-  status: number
-  constructor(message: string, status: number) {
-    super(message)
-    this.status = status
-  }
-}
-
 // ── 疎通確認 ──────────────────────────────────────────
 
-export async function pingHealth(token: string): Promise<'ok' | 'auth_error' | 'network_error'> {
+export async function pingHealth(): Promise<'ok' | 'auth_error' | 'network_error'> {
   try {
-    // まず /api/health でネットワーク疎通、次に /api/templates で認証疎通
     const health = await fetch('/api/health')
     if (!health.ok) return 'network_error'
-    const r = await fetch('/api/templates', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    const r = await fetch('/api/templates', { credentials: 'include' })
     if (r.ok) return 'ok'
     if (r.status === 401 || r.status === 403) return 'auth_error'
     return 'network_error'
@@ -146,34 +135,60 @@ export async function pingHealth(token: string): Promise<'ok' | 'auth_error' | '
   }
 }
 
+// ── auth API (Cernere Composite) ──────────────────────
+
+export const authApi = {
+  me(): Promise<CurrentUser> {
+    return request('GET', '/api/auth/me')
+  },
+  async logout(): Promise<void> {
+    await request('POST', '/api/auth/logout')
+  },
+  login(email: string, password: string): Promise<CompositeAuthResponse> {
+    return request('POST', '/api/auth/cernere/login', { email, password })
+  },
+  register(name: string, email: string, password: string): Promise<CompositeAuthResponse> {
+    return request('POST', '/api/auth/cernere/register', { name, email, password })
+  },
+  mfaVerify(mfaToken: string, method: string, code: string): Promise<CompositeAuthResponse> {
+    return request('POST', '/api/auth/cernere/mfa-verify', { mfaToken, method, code })
+  },
+  exchange(authCode: string): Promise<{ user: { id: string; displayName: string; email: string; role: string } }> {
+    return request('POST', '/api/auth/exchange', { authCode })
+  },
+  loginUrl(origin: string): Promise<{ url: string }> {
+    return request('GET', `/api/auth/login-url?origin=${encodeURIComponent(origin)}`)
+  },
+}
+
 // ── patterns API ──────────────────────────────────────
 
 export const patternsApi = {
-  list(token: string, channel?: ChannelType | 'all'): Promise<{ templates: Pattern[] }> {
+  list(channel?: ChannelType | 'all'): Promise<{ templates: Pattern[] }> {
     const qs = channel ? `?channel=${encodeURIComponent(channel)}` : ''
-    return request(token, 'GET', `/api/templates${qs}`)
+    return request('GET', `/api/templates${qs}`)
   },
-  get(token: string, id: string): Promise<Pattern> {
-    return request(token, 'GET', `/api/templates/${encodeURIComponent(id)}`)
+  get(id: string): Promise<Pattern> {
+    return request('GET', `/api/templates/${encodeURIComponent(id)}`)
   },
-  create(token: string, data: PatternDraft): Promise<{ id: string; name: string }> {
-    return request(token, 'POST', '/api/templates', data)
+  create(data: PatternDraft): Promise<{ id: string; name: string }> {
+    return request('POST', '/api/templates', data)
   },
-  update(token: string, id: string, data: Partial<PatternDraft>): Promise<{ id: string; updated: true }> {
-    return request(token, 'PUT', `/api/templates/${encodeURIComponent(id)}`, data)
+  update(id: string, data: Partial<PatternDraft>): Promise<{ id: string; updated: true }> {
+    return request('PUT', `/api/templates/${encodeURIComponent(id)}`, data)
   },
-  remove(token: string, id: string): Promise<{ id: string; deleted: true }> {
-    return request(token, 'DELETE', `/api/templates/${encodeURIComponent(id)}`)
+  remove(id: string): Promise<{ id: string; deleted: true }> {
+    return request('DELETE', `/api/templates/${encodeURIComponent(id)}`)
   },
-  render(token: string, id: string, input: {
+  render(id: string, input: {
     values?: Record<string, unknown>
     channel?: ChannelType
     extraMentions?: TemplateMention[]
   }): Promise<{ subject: string | null; body: string }> {
-    return request(token, 'POST', `/api/templates/${encodeURIComponent(id)}/render`, input)
+    return request('POST', `/api/templates/${encodeURIComponent(id)}/render`, input)
   },
-  mentionSuggestions(token: string, channel?: ChannelType | 'all'): Promise<{ mentions: MentionSuggestion[] }> {
+  mentionSuggestions(channel?: ChannelType | 'all'): Promise<{ mentions: MentionSuggestion[] }> {
     const qs = channel ? `?channel=${encodeURIComponent(channel)}` : ''
-    return request(token, 'GET', `/api/templates/mentions${qs}`)
+    return request('GET', `/api/templates/mentions${qs}`)
   },
 }

@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   CHANNELS, CHANNEL_LABELS,
-  patternsApi, ApiError,
+  patternsApi,
   type Pattern, type PatternDraft, type TemplateVariable, type TemplateMention,
   type ChannelType, type MentionSuggestion,
 } from '../lib/api'
+import { useAuth, isAuthError } from '../contexts/AuthContext'
 
 const EMPTY_DRAFT: PatternDraft = {
   name: '',
@@ -17,10 +18,8 @@ const EMPTY_DRAFT: PatternDraft = {
   mentions: [],
 }
 
-export function PatternsPage({ token, onAuthError }: {
-  token: string
-  onAuthError: () => void
-}) {
+export function PatternsPage() {
+  const { markAuthError } = useAuth()
   const [patterns, setPatterns] = useState<Pattern[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -33,24 +32,24 @@ export function PatternsPage({ token, onAuthError }: {
   const [suggestions, setSuggestions] = useState<MentionSuggestion[]>([])
 
   const handleApiError = useCallback((err: unknown) => {
-    if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-      onAuthError()
+    if (isAuthError(err)) {
+      markAuthError()
     }
     setError(err instanceof Error ? err.message : String(err))
-  }, [onAuthError])
+  }, [markAuthError])
 
   const refresh = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const r = await patternsApi.list(token)
+      const r = await patternsApi.list()
       setPatterns(r.templates)
     } catch (err) {
       handleApiError(err)
     } finally {
       setLoading(false)
     }
-  }, [token, handleApiError])
+  }, [handleApiError])
 
   useEffect(() => { refresh() }, [refresh])
 
@@ -66,7 +65,7 @@ export function PatternsPage({ token, onAuthError }: {
       return
     }
     try {
-      const p = await patternsApi.get(token, id)
+      const p = await patternsApi.get(id)
       setDraft({
         name: p.name,
         description: p.description ?? '',
@@ -82,7 +81,7 @@ export function PatternsPage({ token, onAuthError }: {
     } catch (err) {
       handleApiError(err)
     }
-  }, [token, handleApiError])
+  }, [handleApiError])
 
   // ── 保存 ─────────────────────────────────────────
   const saveDraft = useCallback(async () => {
@@ -95,9 +94,9 @@ export function PatternsPage({ token, onAuthError }: {
     setError(null)
     try {
       if (selectedId) {
-        await patternsApi.update(token, selectedId, draft)
+        await patternsApi.update(selectedId, draft)
       } else {
-        const r = await patternsApi.create(token, draft)
+        const r = await patternsApi.create(draft)
         setSelectedId(r.id)
       }
       await refresh()
@@ -106,21 +105,21 @@ export function PatternsPage({ token, onAuthError }: {
     } finally {
       setSaving(false)
     }
-  }, [draft, selectedId, token, refresh, handleApiError])
+  }, [draft, selectedId, refresh, handleApiError])
 
   // ── 削除 ─────────────────────────────────────────
   const removeDraft = useCallback(async () => {
     if (!selectedId) return
     if (!confirm('このパターンを削除しますか？')) return
     try {
-      await patternsApi.remove(token, selectedId)
+      await patternsApi.remove(selectedId)
       setSelectedId(null)
       setDraft(null)
       await refresh()
     } catch (err) {
       handleApiError(err)
     }
-  }, [selectedId, token, refresh, handleApiError])
+  }, [selectedId, refresh, handleApiError])
 
   // ── プレビュー ────────────────────────────────────
   const runPreview = useCallback(async () => {
@@ -129,7 +128,7 @@ export function PatternsPage({ token, onAuthError }: {
       return
     }
     try {
-      const r = await patternsApi.render(token, selectedId, {
+      const r = await patternsApi.render(selectedId, {
         values: previewValues,
         channel: previewChannel || undefined,
       })
@@ -137,16 +136,16 @@ export function PatternsPage({ token, onAuthError }: {
     } catch (err) {
       handleApiError(err)
     }
-  }, [selectedId, token, previewValues, previewChannel, handleApiError])
+  }, [selectedId, previewValues, previewChannel, handleApiError])
 
   // ── mention サジェスト ───────────────────────────
   useEffect(() => {
     if (!previewChannel && !draft) { setSuggestions([]); return }
     const channel = previewChannel || (draft?.channel && draft.channel !== 'all' ? draft.channel : undefined)
-    patternsApi.mentionSuggestions(token, channel)
+    patternsApi.mentionSuggestions(channel)
       .then((r) => setSuggestions(r.mentions))
       .catch(() => setSuggestions([]))
-  }, [token, previewChannel, draft])
+  }, [previewChannel, draft])
 
   // ── 変数自動抽出 (body から {{var}} を拾う) ─────
   const extractedVars = useMemo(() => {

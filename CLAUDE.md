@@ -8,6 +8,35 @@ Cernere に従う (RULE.md 準拠):
 - ユーザー認証: Cernere project WS 経由
 - サービス間認証: Cernere project credentials (client_id/secret)
 
+### admin UI (frontend) — Cernere Composite
+
+`frontend/` から Nuntius を触る運用者は Cernere Composite でログインする。
+Schedula と同じパターン:
+
+1. Frontend が `POST /api/auth/cernere/login { email, password }` を叩く
+2. Nuntius backend が project WS 経由で Cernere の `auth.login` コマンドを呼び、
+   `authCode` (or `mfaRequired`) を取得
+3. MFA が必要なら `/api/auth/cernere/mfa-verify`、そうでなければ即
+   `POST /api/auth/exchange { authCode }` で `accessToken` に交換
+4. backend が自身の `service_token` (HS256 JWT, `iss=nuntius`) を発行し、
+   `nuntius_token` Cookie (HttpOnly, SameSite=Lax) にセット
+5. 以降の全 REST/WS は Cookie で認証
+
+Popup モードも `/api/auth/login-url` で取得した URL を別ウィンドウで開く
+フローをサポート。
+
+#### admin 権限と projectKey
+
+Cookie セッションは user_token と同等の扱いとなり、REST ルート
+(`/api/templates`, `/api/messages` 等) は `projectKey` を要求する。
+admin ロールのユーザーは **`NUNTIUS_ADMIN_PROJECT_KEY` 環境変数の値**を
+`projectKey` として紐付け、既存ルートにアクセス可能とする。
+
+| 環境変数 | 用途 |
+|---------|------|
+| `NUNTIUS_ADMIN_PROJECT_KEY` | admin UI ログイン時に bind する projectKey |
+| `JWT_SECRET` | service_token (Cookie) の署名鍵 |
+
 ## アーキテクチャ原則
 
 1. **配信は非同期ワーカー** — REST/WS 受信時は queue に投入のみ、配信は別 worker で処理
@@ -32,7 +61,8 @@ Cernere に従う (RULE.md 準拠):
 | `CERNERE_PROJECT_CLIENT_SECRET` | 同上 |
 | `DATABASE_URL` | PostgreSQL |
 | `REDIS_URL` | Redis (queue 用) |
-| `JWT_SECRET` | Nuntius 自身の token 署名用 |
+| `JWT_SECRET` | Nuntius 自身の service_token 署名用 (admin UI Composite 認証) |
+| `NUNTIUS_ADMIN_PROJECT_KEY` | admin UI ログイン時に bind する projectKey |
 
 ## CI
 

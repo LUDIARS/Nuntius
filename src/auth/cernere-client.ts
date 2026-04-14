@@ -206,3 +206,37 @@ export async function verifyToken(token: string): Promise<CernereUserVerify> {
     return { valid: false };
   }
 }
+
+// ── Composite auth (埋め込みログイン用) ──────────────────
+// Cernere project WS 経由で auth モジュールを叩き、authCode (または MFA) を返す。
+// Cernere 側の実装は Schedula と共通。
+
+export interface CompositeAuthResponse {
+  authCode?: string;
+  mfaRequired?: boolean;
+  mfaMethods?: string[];
+  mfaToken?: string;
+}
+
+export async function compositeLogin(
+  email: string,
+  password: string,
+): Promise<CompositeAuthResponse> {
+  return cernereClient.request("auth", "login", { email, password }) as Promise<CompositeAuthResponse>;
+}
+
+export async function compositeRegister(
+  name: string,
+  email: string,
+  password: string,
+): Promise<CompositeAuthResponse> {
+  return cernereClient.request("auth", "register", { name, email, password }) as Promise<CompositeAuthResponse>;
+}
+
+export async function compositeMfaVerify(
+  mfaToken: string,
+  method: string,
+  code: string,
+): Promise<CompositeAuthResponse> {
+  return cernereClient.request("auth", "mfa-verify", { mfaToken, method, code }) as Promise<CompositeAuthResponse>;
+}

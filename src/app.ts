@@ -13,10 +13,14 @@ import { inboxRoutes } from "./routes/inbox.js";
 import { supportedChannels } from "./channels/index.js";
 import { setupWebSocket } from "./ws/handler.js";
 import { registerNuntiusCommands } from "./ws/register-commands.js";
+import { compositeAuthRoutes } from "./auth/routes.js";
+import { initComposite } from "./auth/composite.js";
 
 export function createApp() {
   // WS コマンドを必ず登録 (multi-invocation safe)
   registerNuntiusCommands();
+  // Cernere Composite 初期化 (CERNERE_URL / JWT_SECRET が揃っていれば有効化)
+  initComposite();
 
   const app = new Hono();
 
@@ -44,6 +48,9 @@ export function createApp() {
       timestamp: new Date().toISOString(),
     });
   });
+
+  // 認証不要: Composite ログイン関連 (Cookie 発行)
+  app.route("/api/auth", compositeAuthRoutes);
 
   // 認証必須エンドポイント
   app.use("/api/messages/*", projectAuth());
