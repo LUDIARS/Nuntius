@@ -10,7 +10,9 @@ import { v4 as uuidv4 } from "uuid";
 import { eq } from "drizzle-orm";
 import { db, schema } from "./db/connection.js";
 import { redisConnection } from "./queue/connection.js";
-import { DISPATCH_QUEUE_NAME, type DispatchJobData } from "./queue/dispatch-queue.js";
+import { DISPATCH_QUEUE_NAME, enqueueMessage, type DispatchJobData } from "./queue/dispatch-queue.js";
+import { computeNextSendAt } from "./queue/recurrence.js";
+import { resolveTemplate } from "./queue/pattern-resolver.js";
 import { getDispatcher } from "./channels/index.js";
 
 async function processDispatch(job: Job<DispatchJobData>): Promise<void> {
@@ -45,7 +47,9 @@ async function processDispatch(job: Job<DispatchJobData>): Promise<void> {
     return;
   }
 
-  const result = await dispatcher.dispatch(msg);
+  // templateId があればパターンを解決し payload にレンダー結果を差し込む
+  const resolvedMsg = await resolveTemplate(msg);
+  const result = await dispatcher.dispatch(resolvedMsg);
   await logDelivery(
     messageId,
     msg.channel,
@@ -61,6 +65,32 @@ async function processDispatch(job: Job<DispatchJobData>): Promise<void> {
       updatedAt: new Date(),
     }).where(eq(schema.scheduledMessages.id, messageId));
     console.log(`[worker] delivered: ${messageId} → ${msg.channel}`);
+
+    // 繰り返し配信: 次回を新しい row として登録し enqueue
+    if (msg.recurrenceRule) {
+      const next = computeNextSendAt(msg.recurrenceRule);
+      if (next) {
+        const nextId = uuidv4();
+        await db.insert(schema.scheduledMessages).values({
+          id: nextId,
+          source: msg.source,
+          userId: msg.userId,
+          channel: msg.channel,
+          sendAt: next,
+          recurrenceRule: msg.recurrenceRule,
+          payload: msg.payload,
+          templateId: msg.templateId,
+          priority: msg.priority,
+          // recurrence チェーンを idempotency に含める
+          idempotencyKey: msg.idempotencyKey ? `${msg.idempotencyKey}:${next.getTime()}` : null,
+          projectKey: msg.projectKey,
+        });
+        await enqueueMessage(nextId, next, msg.priority);
+        console.log(`[worker] rescheduled: ${nextId} at ${next.toISOString()}`);
+      } else {
+        console.warn(`[worker] invalid recurrenceRule on ${messageId}: ${msg.recurrenceRule}`);
+      }
+    }
   } else {
     // BullMQ がリトライするため throw で失敗を伝える
     throw new Error(result.error ?? "Dispatch failed");

@@ -8,9 +8,20 @@ import { logger } from "hono/logger";
 import { projectAuth } from "./middleware/auth.js";
 import { messagesRoutes } from "./routes/messages.js";
 import { topicsRoutes } from "./routes/topics.js";
+import { templatesRoutes } from "./routes/templates.js";
+import { inboxRoutes } from "./routes/inbox.js";
 import { supportedChannels } from "./channels/index.js";
+import { setupWebSocket } from "./ws/handler.js";
+import { registerNuntiusCommands } from "./ws/register-commands.js";
+import { compositeAuthRoutes } from "./auth/routes.js";
+import { initComposite } from "./auth/composite.js";
 
 export function createApp() {
+  // WS コマンドを必ず登録 (multi-invocation safe)
+  registerNuntiusCommands();
+  // Cernere Composite 初期化 (CERNERE_URL / JWT_SECRET が揃っていれば有効化)
+  initComposite();
+
   const app = new Hono();
 
   app.onError((err, c) => {
@@ -38,12 +49,19 @@ export function createApp() {
     });
   });
 
+  // 認証不要: Composite ログイン関連 (Cookie 発行)
+  app.route("/api/auth", compositeAuthRoutes);
+
   // 認証必須エンドポイント
   app.use("/api/messages/*", projectAuth());
   app.use("/api/topics/*", projectAuth());
+  app.use("/api/templates/*", projectAuth());
+  app.use("/api/inbox/*", projectAuth());
 
   app.route("/api/messages", messagesRoutes);
   app.route("/api/topics", topicsRoutes);
+  app.route("/api/templates", templatesRoutes);
+  app.route("/api/inbox", inboxRoutes);
 
   app.get("/", (c) => {
     return c.json({
@@ -53,11 +71,16 @@ export function createApp() {
       endpoints: {
         messages: "/api/messages/{schedule, :id}",
         topics: "/api/topics/:topic/{publish, subscribe}",
+        templates: "/api/templates (CRUD / :id/render / mentions?channel=)",
+        inbox: "/api/inbox?userId={id}",
+        ws: "/ws?token=<project_or_user_token> (nuntius.schedule|cancel|publish|subscribe|list_my)",
         health: "/api/health",
       },
       channels: supportedChannels(),
     });
   });
 
-  return app;
+  // WebSocket エンドポイント (nuntius.* コマンド受付)
+  const { injectWebSocket } = setupWebSocket(app);
+  return { app, injectWebSocket };
 }

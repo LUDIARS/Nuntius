@@ -17,16 +17,17 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const app = createApp();
+  const { app, injectWebSocket } = createApp();
   const port = parseInt(process.env.BACKEND_PORT ?? "3100", 10);
 
   console.log(`[server] 起動中... ポート ${port}`);
   console.log(`[server] CERNERE_URL = ${process.env.CERNERE_URL ?? "(未設定)"}`);
   console.log(`[server] DATABASE_URL = ${(process.env.DATABASE_URL ?? "").replace(/\/\/.*@/, "//***:***@")}`);
 
-  serve({ fetch: app.fetch, port }, (info) => {
-    console.log(`[server] Nuntius listening on http://localhost:${info.port}`);
+  const server = serve({ fetch: app.fetch, port }, (info) => {
+    console.log(`[server] Nuntius listening on http://localhost:${info.port} (WS: /ws)`);
   });
+  injectWebSocket(server);
 }
 
 main().catch((err) => {

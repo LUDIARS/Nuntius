@@ -53,7 +53,7 @@ export async function ensureSchema(): Promise<void> {
   await pgClient`CREATE INDEX IF NOT EXISTS idx_subscription_topic ON topic_subscriptions(topic)`;
   await pgClient`CREATE INDEX IF NOT EXISTS idx_subscription_user ON topic_subscriptions(user_id)`;
 
-  // message_templates
+  // message_templates (通知パターン)
   await pgClient`
     CREATE TABLE IF NOT EXISTS message_templates (
       id TEXT PRIMARY KEY,
@@ -68,6 +68,9 @@ export async function ensureSchema(): Promise<void> {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
+  // 後方互換: 既存テーブルに新カラムを追加 (冪等)
+  await pgClient`ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS description TEXT`;
+  await pgClient`ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS mentions JSONB NOT NULL DEFAULT '[]'`;
   await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS unique_template_name ON message_templates(project_key, name, channel, locale)`;
 
   // delivery_logs
@@ -85,6 +88,23 @@ export async function ensureSchema(): Promise<void> {
   `;
   await pgClient`CREATE INDEX IF NOT EXISTS idx_log_message ON delivery_logs(message_id)`;
   await pgClient`CREATE INDEX IF NOT EXISTS idx_log_attempted ON delivery_logs(attempted_at)`;
+
+  // web_notifications (in-app inbox)
+  await pgClient`
+    CREATE TABLE IF NOT EXISTS web_notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      message_id TEXT,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      metadata JSONB NOT NULL DEFAULT '{}',
+      read_at TIMESTAMPTZ,
+      project_key TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_web_notif_user ON web_notifications(user_id, created_at)`;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_web_notif_unread ON web_notifications(user_id, read_at)`;
 
   console.log("[db] schema 確認完了");
 }

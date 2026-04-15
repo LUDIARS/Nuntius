@@ -19,8 +19,10 @@ import {
 } from "drizzle-orm/pg-core";
 
 // ─── Channel 型 ──────────────────────────────────────────────
-// 現在対応: slack / discord / line / webhook
-// Phase 2+: alexa / email / sms / voice (Imperativus リレー)
+// 対応チャネル:
+//   slack / discord / line / webhook
+//   email / sms / alexa / voice (Imperativus リレー)
+//   web: in-app 通知 (Nuntius に保存し、クライアントが REST で取得)
 export type ChannelType =
   | "slack"
   | "discord"
@@ -29,7 +31,8 @@ export type ChannelType =
   | "alexa"
   | "email"
   | "sms"
-  | "voice";
+  | "voice"
+  | "web";
 
 export type MessageStatus =
   | "pending"    // キュー投入済、送信待ち
@@ -106,23 +109,37 @@ export const topicSubscriptions = pgTable(
   ],
 );
 
-// ─── Message Templates (テンプレート) ────────────────────
+// ─── Notification Patterns (旧称: Message Templates) ───────
+// 通知パターン = 「名前 + チャネル + 本文テンプレート + プレースホルダ定義 + メンション候補」。
+// 送信側は patternId (templateId) を指定するだけで、worker がパターンを引いて
+// payload の values を {{var}} に差し込み、mentions を channel ごとに解決して注入する。
 
 export const messageTemplates = pgTable(
   "message_templates",
   {
     id: text("id").primaryKey(),
+    /** パターン名 (表示用・一意) */
     name: text("name").notNull(),
+    /** 任意の説明 (管理 UI 用) */
+    description: text("description"),
     /** チャネル ("all" で全チャネル共通) */
     channel: text("channel").$type<ChannelType | "all">().notNull().default("all"),
     /** 言語コード (ja, en, ...) */
     locale: text("locale").notNull().default("ja"),
-    /** 件名 (任意) */
+    /** 件名 (任意、email 等で利用、プレースホルダ対応) */
     subject: text("subject"),
-    /** 本文 (プレースホルダ {{var}} 対応) */
+    /** 本文 (プレースホルダ {{var}} / メンション {{@key}} 対応) */
     body: text("body").notNull(),
-    /** プレースホルダ定義 */
+    /**
+     * プレースホルダ定義 (サジェスト用)
+     * 形式: [{ name, label?, required?, example?, description? }]
+     */
     variables: jsonb("variables").notNull().default([]),
+    /**
+     * メンション候補 (サジェスト用)
+     * 形式: [{ key, label, channelValues: { slack?: "<@U123>", discord?: "<@123>", line?: "@user", web?: "@name" } }]
+     */
+    mentions: jsonb("mentions").notNull().default([]),
     projectKey: text("project_key").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -152,6 +169,31 @@ export const deliveryLogs = pgTable(
   ],
 );
 
+// ─── Web (in-app) Notifications ─────────────────────────
+// web チャネルで配信されたメッセージをユーザー単位で保存する。
+// クライアントは GET /api/messages/inbox?userId= で取得、POST /:id/read で既読化。
+
+export const webNotifications = pgTable(
+  "web_notifications",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    /** 元となった scheduled_messages.id (配信経路を辿れるよう保持) */
+    messageId: text("message_id"),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    /** チャネル固有のメタ情報 (link URL, icon 等) */
+    metadata: jsonb("metadata").notNull().default({}),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    projectKey: text("project_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("idx_web_notif_user").on(t.userId, t.createdAt),
+    index("idx_web_notif_unread").on(t.userId, t.readAt),
+  ],
+);
+
 // ─── Types ────────────────────────────────────────────────
 
 export type ScheduledMessage = typeof scheduledMessages.$inferSelect;
@@ -162,3 +204,5 @@ export type MessageTemplate = typeof messageTemplates.$inferSelect;
 export type NewMessageTemplate = typeof messageTemplates.$inferInsert;
 export type DeliveryLog = typeof deliveryLogs.$inferSelect;
 export type NewDeliveryLog = typeof deliveryLogs.$inferInsert;
+export type WebNotification = typeof webNotifications.$inferSelect;
+export type NewWebNotification = typeof webNotifications.$inferInsert;

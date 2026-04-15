@@ -1,43 +1,82 @@
 /**
  * Nuntius 認証ミドルウェア
  *
- * 他サービスが Nuntius を叩くときは project_credentials で発行した
- * project_token を Bearer で渡す。Cernere の /api/auth/verify で検証する。
- * 検証結果を c.set("projectKey", ...) にセットする。
+ * 以下のいずれかで認証できる:
+ *
+ * 1. **Bearer <token>**
+ *    他サービスが project_credentials で取得した project_token、または
+ *    Cernere 発行の user_token を Authorization ヘッダで渡す。
+ *    Cernere /api/auth/verify で検証する。
+ *
+ * 2. **Cookie `nuntius_token`**
+ *    admin UI (frontend) が Composite ログイン後に受け取る Nuntius 自身の
+ *    service_token (HS256 JWT, iss=nuntius)。ローカルで verify する。
+ *
+ * 検証結果は `projectKey` / `clientId` / `userId` / `userRole` を context に set する。
  */
 
 import { createMiddleware } from "hono/factory";
+import { getCookie } from "hono/cookie";
 import { verifyToken } from "../auth/cernere-client.js";
+import { verifyServiceToken } from "../auth/composite.js";
+import { TOKEN_COOKIE } from "../auth/routes.js";
 
 export function projectAuth() {
   return createMiddleware(async (c, next) => {
+    // 1. Bearer token を優先
     const authHeader = c.req.header("Authorization") ?? "";
-    if (!authHeader.startsWith("Bearer ")) {
-      return c.json({ error: "Missing Bearer token" }, 401);
+    if (authHeader.startsWith("Bearer ")) {
+      const token = authHeader.slice(7);
+      const result = await verifyToken(token);
+      if (!result.valid) {
+        return c.json({ error: "Invalid token" }, 401);
+      }
+      if (result.tokenType === "project" && result.project) {
+        c.set("projectKey" as never, result.project.key as never);
+        c.set("clientId" as never, result.project.clientId as never);
+      } else if (result.tokenType === "user" && result.user) {
+        c.set("userId" as never, result.user.id as never);
+        c.set("userRole" as never, result.user.role as never);
+      } else {
+        return c.json({ error: "Unknown token type" }, 401);
+      }
+      await next();
+      return;
     }
-    const token = authHeader.slice(7);
-    const result = await verifyToken(token);
-    if (!result.valid) {
-      return c.json({ error: "Invalid token" }, 401);
+
+    // 2. Cookie based service_token (admin UI)
+    const cookieToken = getCookie(c, TOKEN_COOKIE);
+    if (cookieToken) {
+      const payload = await verifyServiceToken(cookieToken);
+      if (!payload) {
+        return c.json({ error: "Invalid or expired session" }, 401);
+      }
+      c.set("userId" as never, payload.sub as never);
+      c.set("userRole" as never, payload.role as never);
+      // admin ロールは NUNTIUS_ADMIN_PROJECT_KEY を projectKey として紐付け、
+      // 既存 REST ルート (templates / messages / topics / inbox) にアクセス可能にする。
+      if (payload.role === "admin") {
+        const adminProjectKey = process.env.NUNTIUS_ADMIN_PROJECT_KEY ?? "";
+        if (adminProjectKey) {
+          c.set("projectKey" as never, adminProjectKey as never);
+        }
+      }
+      await next();
+      return;
     }
-    if (result.tokenType === "project" && result.project) {
-      c.set("projectKey" as never, result.project.key as never);
-      c.set("clientId" as never, result.project.clientId as never);
-    } else if (result.tokenType === "user" && result.user) {
-      // ユーザートークン経由でも許可 (将来的な UI 直接利用向け)
-      c.set("userId" as never, result.user.id as never);
-      c.set("userRole" as never, result.user.role as never);
-    } else {
-      return c.json({ error: "Unknown token type" }, 401);
-    }
-    await next();
+
+    return c.json({ error: "Missing credentials" }, 401);
   });
 }
 
-export function getProjectKey(c: Parameters<Parameters<typeof createMiddleware>[0]>[0]): string | null {
+export function getProjectKey(
+  c: Parameters<Parameters<typeof createMiddleware>[0]>[0],
+): string | null {
   return (c.get("projectKey" as never) as string | undefined) ?? null;
 }
 
-export function getUserId(c: Parameters<Parameters<typeof createMiddleware>[0]>[0]): string | null {
+export function getUserId(
+  c: Parameters<Parameters<typeof createMiddleware>[0]>[0],
+): string | null {
   return (c.get("userId" as never) as string | undefined) ?? null;
 }
