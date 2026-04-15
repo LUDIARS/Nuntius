@@ -10,6 +10,13 @@ echo "=== [2/4] Backend Tests ==="
 npm test
 
 if [ -d "frontend" ]; then
+  # CI 環境では root の npm ci しか走らないため、frontend の依存もここで入れる
+  if [ ! -d "frontend/node_modules" ]; then
+    echo ""
+    echo "=== Installing frontend deps (npm ci) ==="
+    (cd frontend && npm ci)
+  fi
+
   echo ""
   echo "=== [3/4] Frontend Lint ==="
   (cd frontend && npm run lint)

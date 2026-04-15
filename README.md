@@ -1,8 +1,12 @@
 # Nuntius
 
-LUDIARS 統合通知・メッセージング基盤 (SQS / SNS 的)。
+LUDIARS 統合通知・メッセージング基盤 (SQS / SNS 的) — **バックエンドサービス**。
 
-他サービス (Schedula / Imperativus / Curare / PM 等) からの通知要求を受け取り、複数チャネル (Web / Slack / Discord / LINE / Alexa / Email / SMS) に配信する。
+他サービス (Schedula / Imperativus / Curare / PM 等) からの通知要求を REST / WS で受け取り、
+複数チャネル (Web / Slack / Discord / LINE / Alexa / Email / SMS) に配信する。
+
+`frontend/` は運用者向けの通知パターン管理 admin UI であり、Nuntius 本体 (バックエンド) の
+補助ツール。サービス間連携は常に API 経由で行い、admin UI は通知テンプレート管理のみに使用する。
 
 ## セットアップ
 
