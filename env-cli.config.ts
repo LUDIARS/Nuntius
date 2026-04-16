@@ -31,6 +31,12 @@ const config: EnvCliConfig = {
     // admin UI の Composite 認証で発行する service_token (nuntius_token Cookie) の署名鍵
     JWT_SECRET: "nuntius-dev-secret-change-in-production",
 
+    // ─── Channel Credentials 暗号化鍵 (AES-256-GCM) ────────
+    // channel_credentials.credentials (JSONB) を暗号化する。
+    // 32 byte を base64 エンコードした文字列 (例: `openssl rand -base64 32`)。
+    // 本番では必ず Infisical 経由で配布し、ローテーション時は再暗号化スクリプトを別途用意する。
+    NUNTIUS_ENCRYPTION_KEY: "",
+
     // ─── Cernere プロジェクト認証 (WS接続用) ──────────────
     // Cernere で Nuntius をプロジェクト登録した際の client_id / client_secret
     CERNERE_PROJECT_CLIENT_ID: "",
