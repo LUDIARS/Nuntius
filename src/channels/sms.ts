@@ -2,40 +2,48 @@
  * SMS 配信 (AWS SNS)
  *
  * payload:
- *   to:   string  — E.164 形式の電話番号 (例: +819012345678)
- *   text: string  — 本文
+ *   to:             string  — E.164 形式の電話番号 (例: +819012345678)
+ *   text:           string  — 本文
+ *   credentialName: string  — channel_credentials.name を参照 (省略時 "default")
  *
- * 環境変数:
- *   AWS_REGION            (既定: us-east-1)
- *   AWS_ACCESS_KEY_ID
- *   AWS_SECRET_ACCESS_KEY
- *   SMS_SENDER_ID         (任意: SNS Origination Number / Sender ID)
+ * credentials (JSONB):
+ *   { accessKeyId, secretAccessKey, region?, senderId? }
+ *     - region    (既定: "us-east-1")
+ *     - senderId  (任意: SNS Origination Number / Sender ID)
  *
  * AWS 認証情報が未設定の場合は dev モードでログのみ出力する。
  */
 
 import type { ChannelDispatcher, DispatchResult } from "./types.js";
 import type { ScheduledMessage } from "../db/schema.js";
+import { loadChannelCredentials } from "./credentials.js";
 
-let snsClientPromise: Promise<unknown> | null = null;
+interface SmsCreds {
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  region?: string;
+  senderId?: string;
+}
 
-async function getSnsClient(): Promise<{
+let snsModPromise: Promise<unknown> | null = null;
+
+async function getSnsClient(creds: SmsCreds): Promise<{
   client: unknown;
   PublishCommand: unknown;
 } | null> {
-  const accessKey = process.env.AWS_ACCESS_KEY_ID ?? "";
-  const secretKey = process.env.AWS_SECRET_ACCESS_KEY ?? "";
+  const accessKey = creds.accessKeyId ?? "";
+  const secretKey = creds.secretAccessKey ?? "";
   if (!accessKey || !secretKey) return null;
 
   try {
-    if (!snsClientPromise) {
-      snsClientPromise = import("@aws-sdk/client-sns");
+    if (!snsModPromise) {
+      snsModPromise = import("@aws-sdk/client-sns");
     }
-    const mod = (await snsClientPromise) as {
+    const mod = (await snsModPromise) as {
       SNSClient: new (cfg: Record<string, unknown>) => unknown;
       PublishCommand: new (input: Record<string, unknown>) => unknown;
     };
-    const region = process.env.AWS_REGION ?? "us-east-1";
+    const region = creds.region ?? "us-east-1";
     const client = new mod.SNSClient({
       region,
       credentials: { accessKeyId: accessKey, secretAccessKey: secretKey },
@@ -63,14 +71,21 @@ export const smsDispatcher: ChannelDispatcher = {
       return { success: false, error: "sms 'to' must be E.164 format (+countrycode...)" };
     }
 
-    const sns = await getSnsClient();
+    const credName = (p.credentialName as string | undefined) ?? "default";
+    const creds = (await loadChannelCredentials<SmsCreds>(
+      message.projectKey,
+      "sms",
+      credName,
+    )) ?? {};
+
+    const sns = await getSnsClient(creds);
     if (!sns) {
       console.log(`[sms:dev] to=${to} text="${text}"`);
-      return { success: true, responseBody: "dev mode (AWS credentials not configured)" };
+      return { success: true, responseBody: "dev mode (sms credentials not configured)" };
     }
 
     try {
-      const senderId = process.env.SMS_SENDER_ID;
+      const senderId = creds.senderId;
       const attrs: Record<string, unknown> = {
         "AWS.SNS.SMS.SMSType": { DataType: "String", StringValue: "Transactional" },
       };

@@ -2,21 +2,34 @@
  * Slack Incoming Webhook への配信
  *
  * payload:
- *   webhookUrl: string  — 送信先 (未指定時は env の SLACK_DEFAULT_WEBHOOK_URL)
- *   text:       string  — テキスト本文
- *   blocks:     unknown[] (任意) — Block Kit
+ *   webhookUrl:     string  — 送信先 URL を直接指定 (最優先)
+ *   credentialName: string  — channel_credentials.name を参照 (省略時 "default")
+ *   text:           string  — テキスト本文
+ *   blocks:         unknown[] (任意) — Block Kit
+ *
+ * credentials (JSONB): { webhookUrl: string }
  */
 
 import type { ChannelDispatcher, DispatchResult } from "./types.js";
 import type { ScheduledMessage } from "../db/schema.js";
+import { loadChannelCredentials } from "./credentials.js";
 
 export const slackDispatcher: ChannelDispatcher = {
   channel: "slack",
   async dispatch(message: ScheduledMessage): Promise<DispatchResult> {
     const p = message.payload as Record<string, unknown>;
-    const webhookUrl = (p.webhookUrl as string | undefined) ?? process.env.SLACK_DEFAULT_WEBHOOK_URL ?? "";
+    let webhookUrl = (p.webhookUrl as string | undefined) ?? "";
     if (!webhookUrl) {
-      return { success: false, error: "No Slack webhook URL configured" };
+      const credName = (p.credentialName as string | undefined) ?? "default";
+      const creds = await loadChannelCredentials<{ webhookUrl?: string }>(
+        message.projectKey,
+        "slack",
+        credName,
+      );
+      webhookUrl = creds?.webhookUrl ?? "";
+    }
+    if (!webhookUrl) {
+      return { success: false, error: "No Slack webhook URL configured (channel_credentials)" };
     }
 
     const body: Record<string, unknown> = {};
