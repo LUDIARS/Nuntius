@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { eq, and, desc, isNull } from "drizzle-orm";
 import { db, schema } from "../db/connection.js";
 import { getProjectKey } from "../middleware/auth.js";
+import { authorizeUserAccess } from "../middleware/authorize.js";
 
 export const inboxRoutes = new Hono();
 
@@ -20,6 +21,14 @@ inboxRoutes.get("/", async (c) => {
   const unreadOnly = c.req.query("unread") === "true";
   const limitParam = c.req.query("limit");
   const limit = Math.max(1, Math.min(200, parseInt(limitParam ?? "50", 10) || 50));
+
+  const authz = await authorizeUserAccess(c, userId, {
+    projectKey,
+    action: "inbox.list",
+    resource: "web_notifications",
+    metadata: { unreadOnly, limit },
+  });
+  if (!authz.ok) return c.json({ error: authz.error }, authz.status);
 
   const whereClause = unreadOnly
     ? and(
@@ -54,6 +63,14 @@ inboxRoutes.post("/:id/read", async (c) => {
     .limit(1);
   if (rows.length === 0) return c.json({ error: "Notification not found" }, 404);
 
+  const authz = await authorizeUserAccess(c, rows[0].userId, {
+    projectKey,
+    action: "inbox.read",
+    resource: "web_notifications",
+    resourceId: id,
+  });
+  if (!authz.ok) return c.json({ error: authz.error }, authz.status);
+
   await db.update(schema.webNotifications)
     .set({ readAt: new Date() })
     .where(eq(schema.webNotifications.id, id));
@@ -74,6 +91,14 @@ inboxRoutes.delete("/:id", async (c) => {
     ))
     .limit(1);
   if (rows.length === 0) return c.json({ error: "Notification not found" }, 404);
+
+  const authz = await authorizeUserAccess(c, rows[0].userId, {
+    projectKey,
+    action: "inbox.delete",
+    resource: "web_notifications",
+    resourceId: id,
+  });
+  if (!authz.ok) return c.json({ error: authz.error }, authz.status);
 
   await db.delete(schema.webNotifications)
     .where(eq(schema.webNotifications.id, id));

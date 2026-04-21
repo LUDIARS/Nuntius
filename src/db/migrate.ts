@@ -49,9 +49,26 @@ export async function ensureSchema(): Promise<void> {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
-  await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS unique_subscription ON topic_subscriptions(topic, user_id, channel)`;
+  // unique_subscription: projectKey を複合キーに含めてテナント分離を担保する。
+  // 既存の (topic, user_id, channel) インデックスが残っているとクロステナントで
+  // 衝突するため、存在すれば drop してから再作成する。
+  await pgClient`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE schemaname = current_schema()
+          AND indexname = 'unique_subscription'
+          AND indexdef NOT LIKE '%project_key%'
+      ) THEN
+        EXECUTE 'DROP INDEX unique_subscription';
+      END IF;
+    END $$
+  `;
+  await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS unique_subscription ON topic_subscriptions(project_key, topic, user_id, channel)`;
   await pgClient`CREATE INDEX IF NOT EXISTS idx_subscription_topic ON topic_subscriptions(topic)`;
   await pgClient`CREATE INDEX IF NOT EXISTS idx_subscription_user ON topic_subscriptions(user_id)`;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_subscription_project ON topic_subscriptions(project_key)`;
 
   // message_templates (通知パターン)
   await pgClient`
@@ -86,8 +103,13 @@ export async function ensureSchema(): Promise<void> {
       response_body TEXT
     )
   `;
+  // 後方互換: projectKey / userId を追加 (nullable、旧レコードは NULL)
+  await pgClient`ALTER TABLE delivery_logs ADD COLUMN IF NOT EXISTS project_key TEXT`;
+  await pgClient`ALTER TABLE delivery_logs ADD COLUMN IF NOT EXISTS user_id TEXT`;
   await pgClient`CREATE INDEX IF NOT EXISTS idx_log_message ON delivery_logs(message_id)`;
   await pgClient`CREATE INDEX IF NOT EXISTS idx_log_attempted ON delivery_logs(attempted_at)`;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_log_project ON delivery_logs(project_key)`;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_log_user ON delivery_logs(user_id)`;
 
   // web_notifications (in-app inbox)
   await pgClient`
@@ -105,6 +127,24 @@ export async function ensureSchema(): Promise<void> {
   `;
   await pgClient`CREATE INDEX IF NOT EXISTS idx_web_notif_user ON web_notifications(user_id, created_at)`;
   await pgClient`CREATE INDEX IF NOT EXISTS idx_web_notif_unread ON web_notifications(user_id, read_at)`;
+
+  // admin_access_logs: admin UI 経由の参照/変更を監査ログとして記録する
+  await pgClient`
+    CREATE TABLE IF NOT EXISTS admin_access_logs (
+      id TEXT PRIMARY KEY,
+      actor_user_id TEXT NOT NULL,
+      project_key TEXT NOT NULL,
+      action TEXT NOT NULL,
+      resource TEXT NOT NULL,
+      resource_id TEXT,
+      target_user_id TEXT,
+      metadata JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_admin_access_actor ON admin_access_logs(actor_user_id, created_at)`;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_admin_access_project ON admin_access_logs(project_key, created_at)`;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_admin_access_target ON admin_access_logs(target_user_id, created_at)`;
 
   console.log("[db] schema 確認完了");
 }

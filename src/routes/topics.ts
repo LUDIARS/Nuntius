@@ -13,6 +13,7 @@ import { db, schema } from "../db/connection.js";
 import type { ChannelType } from "../db/schema.js";
 import { enqueueMessage } from "../queue/dispatch-queue.js";
 import { getProjectKey, getUserId } from "../middleware/auth.js";
+import { encryptField, decryptField } from "../auth/crypto.js";
 
 export const topicsRoutes = new Hono();
 
@@ -33,6 +34,7 @@ topicsRoutes.post("/:topic/publish", async (c) => {
 
   const conditions = [
     eq(schema.topicSubscriptions.topic, topic),
+    eq(schema.topicSubscriptions.projectKey, projectKey),
     eq(schema.topicSubscriptions.enabled, true),
   ];
   if (body.channel) {
@@ -48,8 +50,10 @@ topicsRoutes.post("/:topic/publish", async (c) => {
   for (const s of subs) {
     const id = uuidv4();
     // subscription の endpoint が登録されていれば payload にマージ
-    const payload = s.endpoint
-      ? { ...body.payload, webhookUrl: s.endpoint, url: s.endpoint, to: s.endpoint }
+    // 暗号化保存されている可能性があるので復号してから dispatch に渡す
+    const endpoint = decryptField(s.endpoint);
+    const payload = endpoint
+      ? { ...body.payload, webhookUrl: endpoint, url: endpoint, to: endpoint }
       : body.payload;
 
     await db.insert(schema.scheduledMessages).values({
@@ -90,11 +94,16 @@ topicsRoutes.post("/:topic/subscribe", async (c) => {
       eq(schema.topicSubscriptions.topic, topic),
       eq(schema.topicSubscriptions.userId, userId),
       eq(schema.topicSubscriptions.channel, body.channel),
+      eq(schema.topicSubscriptions.projectKey, projectKey),
     )).limit(1);
 
   if (existing.length > 0) {
+    // body.endpoint が指定されていれば暗号化して上書き、無ければ既存値 (既に暗号化済みの可能性) をそのまま維持
+    const newEndpoint = body.endpoint !== undefined
+      ? encryptField(body.endpoint)
+      : existing[0].endpoint;
     await db.update(schema.topicSubscriptions).set({
-      endpoint: body.endpoint ?? existing[0].endpoint,
+      endpoint: newEndpoint,
       enabled: true,
       updatedAt: new Date(),
     }).where(eq(schema.topicSubscriptions.id, existing[0].id));
@@ -107,7 +116,7 @@ topicsRoutes.post("/:topic/subscribe", async (c) => {
     topic,
     userId,
     channel: body.channel,
-    endpoint: body.endpoint ?? null,
+    endpoint: encryptField(body.endpoint ?? null),
     projectKey,
   });
   return c.json({ id, topic, enabled: true }, 201);
