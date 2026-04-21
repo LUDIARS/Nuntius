@@ -10,6 +10,7 @@ import type { ChannelType } from "../db/schema.js";
 import { enqueueMessage, cancelMessage } from "../queue/dispatch-queue.js";
 import { isValidRecurrenceRule } from "../queue/recurrence.js";
 import { getProjectKey } from "../middleware/auth.js";
+import { authorizeUserAccess } from "../middleware/authorize.js";
 import { getDispatcher } from "../channels/index.js";
 
 export const messagesRoutes = new Hono();
@@ -94,6 +95,14 @@ messagesRoutes.delete("/:id", async (c) => {
     )).limit(1);
   if (rows.length === 0) return c.json({ error: "Message not found" }, 404);
 
+  const authz = await authorizeUserAccess(c, rows[0].userId, {
+    projectKey,
+    action: "messages.cancel",
+    resource: "scheduled_messages",
+    resourceId: id,
+  });
+  if (!authz.ok) return c.json({ error: authz.error }, authz.status);
+
   await db.update(schema.scheduledMessages).set({
     status: "cancelled",
     updatedAt: new Date(),
@@ -115,6 +124,14 @@ messagesRoutes.get("/:id", async (c) => {
       eq(schema.scheduledMessages.projectKey, projectKey),
     )).limit(1);
   if (rows.length === 0) return c.json({ error: "Message not found" }, 404);
+
+  const authz = await authorizeUserAccess(c, rows[0].userId, {
+    projectKey,
+    action: "messages.get",
+    resource: "scheduled_messages",
+    resourceId: id,
+  });
+  if (!authz.ok) return c.json({ error: authz.error }, authz.status);
 
   return c.json(rows[0]);
 });

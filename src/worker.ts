@@ -42,7 +42,7 @@ async function processDispatch(job: Job<DispatchJobData>): Promise<void> {
   const dispatcher = getDispatcher(msg.channel);
   if (!dispatcher) {
     const error = `No dispatcher for channel: ${msg.channel}`;
-    await logDelivery(messageId, msg.channel, false, null, error, null);
+    await logDelivery(messageId, msg.channel, false, null, error, null, msg.projectKey, msg.userId);
     await markFailed(messageId, error);
     return;
   }
@@ -57,6 +57,8 @@ async function processDispatch(job: Job<DispatchJobData>): Promise<void> {
     result.httpStatus ?? null,
     result.error ?? null,
     result.responseBody ?? null,
+    msg.projectKey,
+    msg.userId,
   );
 
   if (result.success) {
@@ -112,6 +114,8 @@ async function logDelivery(
   httpStatus: number | null,
   error: string | null,
   responseBody: string | null,
+  projectKey: string | null,
+  userId: string | null,
 ): Promise<void> {
   await db.insert(schema.deliveryLogs).values({
     id: uuidv4(),
@@ -121,6 +125,8 @@ async function logDelivery(
     httpStatus,
     error,
     responseBody,
+    projectKey,
+    userId,
   });
 }
 

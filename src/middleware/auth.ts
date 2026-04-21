@@ -80,3 +80,33 @@ export function getUserId(
 ): string | null {
   return (c.get("userId" as never) as string | undefined) ?? null;
 }
+
+export function getUserRole(
+  c: Parameters<Parameters<typeof createMiddleware>[0]>[0],
+): string | null {
+  return (c.get("userRole" as never) as string | undefined) ?? null;
+}
+
+/** project_token 経由なら Cernere project clientId、それ以外なら null */
+export function getClientId(
+  c: Parameters<Parameters<typeof createMiddleware>[0]>[0],
+): string | null {
+  return (c.get("clientId" as never) as string | undefined) ?? null;
+}
+
+/**
+ * 呼び出し元の「アクター種別」を返す。
+ *   - "service": project_token (clientId が入っている)
+ *   - "admin"  : Cookie セッションで role=admin
+ *   - "user"   : 一般ユーザー (userId のみ)
+ *   - "anon"   : いずれでもない
+ */
+export function getActorKind(
+  c: Parameters<Parameters<typeof createMiddleware>[0]>[0],
+): "service" | "admin" | "user" | "anon" {
+  if (getClientId(c)) return "service";
+  const role = getUserRole(c);
+  if (role === "admin") return "admin";
+  if (getUserId(c)) return "user";
+  return "anon";
+}

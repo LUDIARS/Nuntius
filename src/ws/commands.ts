@@ -13,6 +13,7 @@ import type { ChannelType } from "../db/schema.js";
 import { enqueueMessage, cancelMessage } from "../queue/dispatch-queue.js";
 import { isValidRecurrenceRule } from "../queue/recurrence.js";
 import { getDispatcher } from "../channels/index.js";
+import { encryptField, decryptField } from "../auth/crypto.js";
 
 // ─── 共通型 ────────────────────────────────────────────────
 
@@ -140,6 +141,7 @@ export async function publishToTopic(
 
   const conditions = [
     eq(schema.topicSubscriptions.topic, input.topic),
+    eq(schema.topicSubscriptions.projectKey, projectKey),
     eq(schema.topicSubscriptions.enabled, true),
   ];
   if (input.channel) conditions.push(eq(schema.topicSubscriptions.channel, input.channel));
@@ -150,8 +152,9 @@ export async function publishToTopic(
 
   for (const s of subs) {
     const id = uuidv4();
-    const payload = s.endpoint
-      ? { ...(input.payload ?? {}), webhookUrl: s.endpoint, url: s.endpoint, to: s.endpoint }
+    const endpoint = decryptField(s.endpoint);
+    const payload = endpoint
+      ? { ...(input.payload ?? {}), webhookUrl: endpoint, url: endpoint, to: endpoint }
       : (input.payload ?? {});
     await db.insert(schema.scheduledMessages).values({
       id,
@@ -192,11 +195,15 @@ export async function subscribeTopic(
       eq(schema.topicSubscriptions.topic, input.topic),
       eq(schema.topicSubscriptions.userId, userId),
       eq(schema.topicSubscriptions.channel, input.channel),
+      eq(schema.topicSubscriptions.projectKey, projectKey),
     )).limit(1);
 
   if (existing.length > 0) {
+    const newEndpoint = input.endpoint !== undefined
+      ? encryptField(input.endpoint)
+      : existing[0].endpoint;
     await db.update(schema.topicSubscriptions).set({
-      endpoint: input.endpoint ?? existing[0].endpoint,
+      endpoint: newEndpoint,
       enabled: true,
       updatedAt: new Date(),
     }).where(eq(schema.topicSubscriptions.id, existing[0].id));
@@ -209,7 +216,7 @@ export async function subscribeTopic(
     topic: input.topic,
     userId,
     channel: input.channel,
-    endpoint: input.endpoint ?? null,
+    endpoint: encryptField(input.endpoint ?? null),
     projectKey,
   });
   return { id, topic: input.topic, enabled: true };

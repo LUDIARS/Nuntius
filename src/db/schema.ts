@@ -103,9 +103,10 @@ export const topicSubscriptions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("unique_subscription").on(t.topic, t.userId, t.channel),
+    uniqueIndex("unique_subscription").on(t.projectKey, t.topic, t.userId, t.channel),
     index("idx_subscription_topic").on(t.topic),
     index("idx_subscription_user").on(t.userId),
+    index("idx_subscription_project").on(t.projectKey),
   ],
 );
 
@@ -162,10 +163,19 @@ export const deliveryLogs = pgTable(
     httpStatus: integer("http_status"),
     error: text("error"),
     responseBody: text("response_body"),
+    /**
+     * 配信元プロジェクト。GDPR 等の right-to-delete を projectKey 単位で絞り込むため保持。
+     * 旧レコードは null が残る可能性があるので notNull にはしない。
+     */
+    projectKey: text("project_key"),
+    /** 配信対象ユーザー (監査用)。旧レコード互換のため nullable */
+    userId: text("user_id"),
   },
   (t) => [
     index("idx_log_message").on(t.messageId),
     index("idx_log_attempted").on(t.attemptedAt),
+    index("idx_log_project").on(t.projectKey),
+    index("idx_log_user").on(t.userId),
   ],
 );
 
@@ -194,6 +204,38 @@ export const webNotifications = pgTable(
   ],
 );
 
+// ─── Admin Access Logs (監査ログ) ──────────────────────────
+// admin ロールのユーザーが他ユーザーの通知データに触れた操作を記録する。
+// service-to-service (project_token) 呼び出しはサービス側で追跡するため、
+// ここでは admin UI 経由のアクセスのみをロギング対象とする。
+
+export const adminAccessLogs = pgTable(
+  "admin_access_logs",
+  {
+    id: text("id").primaryKey(),
+    /** 操作者 (admin ユーザーの Cernere users.id) */
+    actorUserId: text("actor_user_id").notNull(),
+    /** 操作時の projectKey (NUNTIUS_ADMIN_PROJECT_KEY) */
+    projectKey: text("project_key").notNull(),
+    /** 操作種別: inbox.list / inbox.read / inbox.delete / messages.get / messages.cancel 等 */
+    action: text("action").notNull(),
+    /** 対象リソース種別: web_notifications / scheduled_messages / topic_subscriptions */
+    resource: text("resource").notNull(),
+    /** 対象リソース ID (一覧操作等で null 可) */
+    resourceId: text("resource_id"),
+    /** 対象ユーザー ID (他ユーザーのデータに触れた場合に記録) */
+    targetUserId: text("target_user_id"),
+    /** 追加メタ情報 (件数・クエリパラメータ等) */
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("idx_admin_access_actor").on(t.actorUserId, t.createdAt),
+    index("idx_admin_access_project").on(t.projectKey, t.createdAt),
+    index("idx_admin_access_target").on(t.targetUserId, t.createdAt),
+  ],
+);
+
 // ─── Types ────────────────────────────────────────────────
 
 export type ScheduledMessage = typeof scheduledMessages.$inferSelect;
@@ -206,3 +248,5 @@ export type DeliveryLog = typeof deliveryLogs.$inferSelect;
 export type NewDeliveryLog = typeof deliveryLogs.$inferInsert;
 export type WebNotification = typeof webNotifications.$inferSelect;
 export type NewWebNotification = typeof webNotifications.$inferInsert;
+export type AdminAccessLog = typeof adminAccessLogs.$inferSelect;
+export type NewAdminAccessLog = typeof adminAccessLogs.$inferInsert;
