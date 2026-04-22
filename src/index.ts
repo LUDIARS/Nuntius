@@ -28,6 +28,13 @@ async function main(): Promise<void> {
     console.log(`[server] Nuntius listening on http://localhost:${info.port} (WS: /ws)`);
   });
   injectWebSocket(server);
+
+  // Peer service adapter (backend-to-backend WS via Cernere).
+  // env 未設定なら no-op (user-facing API には影響なし).
+  const { initServiceAdapter } = await import("./service-adapter.js");
+  void initServiceAdapter().catch((err) => {
+    console.warn("[nuntius-sa] peer adapter 起動失敗 (user-facing API は継続):", err);
+  });
 }
 
 main().catch((err) => {
