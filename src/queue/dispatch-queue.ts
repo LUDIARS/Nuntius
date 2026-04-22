@@ -9,7 +9,7 @@
 import { Queue } from "bullmq";
 import { redisConnection } from "./connection.js";
 
-export const DISPATCH_QUEUE_NAME = "nuntius:dispatch";
+export const DISPATCH_QUEUE_NAME = "nuntius-dispatch";
 
 export interface DispatchJobData {
   messageId: string;
