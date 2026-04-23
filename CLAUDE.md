@@ -110,10 +110,15 @@ GET /ws?token=<token>
 | `cancel`   | 予約メッセージをキャンセル                     | `{ id }`                                                                | project token 必須 |
 | `publish`  | トピックに即時配信 (REST `POST /api/topics/:topic/publish` と同等) | `{ topic, channel?, payload, sendAt?, source? }`                        | project token 必須 |
 | `subscribe`| トピック購読を登録                             | `{ topic, userId?, channel, endpoint? }`                                | project token 必須 (`userId` 省略時は session の userId) |
-| `list_my`  | 自分 (または指定ユーザー) の予約/inbox 一覧    | `{ userId?, limit?, includeInbox? }`                                    | project token 必須 |
+| `list_my`  | 自分 (または指定ユーザー) の予約/inbox 一覧    | `{ userId?, limit?, includeInbox? }`                                    | project token / user_token 両対応 |
 
-> いずれも `ctx.projectKey` が必須。user_token 単体では `project context required` エラーが返る
-> (ユーザー直接呼び出しを許可するコマンドは今後追加予定)。
+> `schedule` / `cancel` / `publish` / `subscribe` は `ctx.projectKey` が必須で、
+> user_token 単体で呼ぶと `project context required` エラーになる。
+>
+> `list_my` のみ user_token でも呼び出せる。その場合は projectKey 横断で
+> `ctx.userId` 自身のデータのみを返し、`input.userId` で他ユーザーを指定すると
+> `forbidden` エラーになる。project_token 経由なら従来どおり projectKey で
+> テナント分離しつつ任意の userId を指定できる。
 
 ## 移行ロードマップ
 

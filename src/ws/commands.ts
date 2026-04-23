@@ -223,7 +223,10 @@ export async function subscribeTopic(
 }
 
 // ─── nuntius.list_my ─────────────────────────────────────
-// ユーザー自身のスケジュール済みメッセージ + inbox (web 通知) を返す
+// ユーザー自身のスケジュール済みメッセージ + inbox (web 通知) を返す。
+//
+// project_token 経由では projectKey でテナント分離し、任意の userId を指定可。
+// user_token 経由では projectKey 横断で自分自身 (ctx.userId) のデータのみ参照可。
 
 export interface ListMyInput {
   userId?: string;
@@ -250,11 +253,26 @@ export async function listMyMessages(
     createdAt: string;
   }>;
 }> {
-  const projectKey = requireProject(ctx);
+  if (!ctx.projectKey && !ctx.userId) {
+    throw new Error("authentication required");
+  }
+
   const userId = input.userId ?? ctx.userId;
   if (!userId) throw new Error("userId is required");
 
+  // user_token 経由では自分自身のデータしか読めない (他ユーザー指定を禁止)
+  if (!ctx.projectKey && ctx.userId && userId !== ctx.userId) {
+    throw new Error("forbidden: user token cannot access other user's data");
+  }
+
   const limit = Math.max(1, Math.min(200, input.limit ?? 50));
+
+  const scheduledWhere = ctx.projectKey
+    ? and(
+        eq(schema.scheduledMessages.userId, userId),
+        eq(schema.scheduledMessages.projectKey, ctx.projectKey),
+      )
+    : eq(schema.scheduledMessages.userId, userId);
 
   const scheduled = await db.select({
     id: schema.scheduledMessages.id,
@@ -263,14 +281,18 @@ export async function listMyMessages(
     status: schema.scheduledMessages.status,
     source: schema.scheduledMessages.source,
   }).from(schema.scheduledMessages)
-    .where(and(
-      eq(schema.scheduledMessages.userId, userId),
-      eq(schema.scheduledMessages.projectKey, projectKey),
-    ))
+    .where(scheduledWhere)
     .orderBy(desc(schema.scheduledMessages.sendAt))
     .limit(limit);
 
   const includeInbox = input.includeInbox ?? true;
+  const inboxWhere = ctx.projectKey
+    ? and(
+        eq(schema.webNotifications.userId, userId),
+        eq(schema.webNotifications.projectKey, ctx.projectKey),
+      )
+    : eq(schema.webNotifications.userId, userId);
+
   const inbox = includeInbox
     ? await db.select({
         id: schema.webNotifications.id,
@@ -279,10 +301,7 @@ export async function listMyMessages(
         readAt: schema.webNotifications.readAt,
         createdAt: schema.webNotifications.createdAt,
       }).from(schema.webNotifications)
-        .where(and(
-          eq(schema.webNotifications.userId, userId),
-          eq(schema.webNotifications.projectKey, projectKey),
-        ))
+        .where(inboxWhere)
         .orderBy(desc(schema.webNotifications.createdAt))
         .limit(limit)
     : [];

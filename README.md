@@ -259,7 +259,7 @@ GET /ws?token=<token>
 | `nuntius.cancel`    | 予約メッセージをキャンセル | project token 必須 |
 | `nuntius.publish`   | トピックに即時配信 | project token 必須 |
 | `nuntius.subscribe` | トピック購読を登録 | project token 必須 |
-| `nuntius.list_my`   | 自分 (または指定ユーザー) の予約/inbox 一覧 | project token 必須 |
+| `nuntius.list_my`   | 自分 (または指定ユーザー) の予約/inbox 一覧 | project token / user_token 両対応 (user_token 時は自分のみ、projectKey 横断) |
 
 ## Admin UI (frontend)
 

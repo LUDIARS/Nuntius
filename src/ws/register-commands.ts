@@ -7,8 +7,9 @@
  * 各ハンドラは `commands.ts` を遅延 import する。これにより DB/Redis を
  * 初期化せずに登録だけ完了できるため、ユニットテスト (vitest) でも安全。
  *
- * すべて project-scoped。project_token での接続時に限り実行可能
- * (ctx.projectKey が null の場合はコマンド側でエラーになる)。
+ * 基本は project-scoped。`schedule` / `cancel` / `publish` / `subscribe` は
+ * project_token 必須で、ctx.projectKey が null の場合はコマンド側でエラーになる。
+ * `list_my` のみ user_token でも呼び出せる (自分の userId に限る)。
  */
 
 import { registerCommand } from "./dispatcher.js";
