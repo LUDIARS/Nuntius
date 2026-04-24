@@ -10,6 +10,7 @@ import { messagesRoutes } from "./routes/messages.js";
 import { topicsRoutes } from "./routes/topics.js";
 import { templatesRoutes } from "./routes/templates.js";
 import { inboxRoutes } from "./routes/inbox.js";
+import { deliveryLogsRoutes } from "./routes/delivery-logs.js";
 import { supportedChannels } from "./channels/index.js";
 import { setupWebSocket } from "./ws/handler.js";
 import { registerNuntiusCommands } from "./ws/register-commands.js";
@@ -57,11 +58,13 @@ export function createApp() {
   app.use("/api/topics/*", projectAuth());
   app.use("/api/templates/*", projectAuth());
   app.use("/api/inbox/*", projectAuth());
+  app.use("/api/delivery-logs/*", projectAuth());
 
   app.route("/api/messages", messagesRoutes);
   app.route("/api/topics", topicsRoutes);
   app.route("/api/templates", templatesRoutes);
   app.route("/api/inbox", inboxRoutes);
+  app.route("/api/delivery-logs", deliveryLogsRoutes);
 
   app.get("/", (c) => {
     return c.json({
@@ -69,10 +72,11 @@ export function createApp() {
       version: "0.1.0",
       description: "LUDIARS 統合通知・メッセージング基盤",
       endpoints: {
-        messages: "/api/messages/{schedule, :id}",
+        messages: "/api/messages (list / :schedule / :id / :id/logs)",
         topics: "/api/topics/:topic/{publish, subscribe}",
         templates: "/api/templates (CRUD / :id/render / mentions?channel=)",
         inbox: "/api/inbox?userId={id}",
+        delivery_logs: "/api/delivery-logs (list / stats?window=<min>)",
         ws: "/ws?token=<project_or_user_token> (nuntius.schedule|cancel|publish|subscribe|list_my)",
         health: "/api/health",
       },
