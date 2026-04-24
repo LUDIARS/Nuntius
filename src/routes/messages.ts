@@ -4,9 +4,9 @@
 
 import { Hono } from "hono";
 import { v4 as uuidv4 } from "uuid";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
 import { db, schema } from "../db/connection.js";
-import type { ChannelType } from "../db/schema.js";
+import type { ChannelType, MessageStatus } from "../db/schema.js";
 import { enqueueMessage, cancelMessage } from "../queue/dispatch-queue.js";
 import { isValidRecurrenceRule } from "../queue/recurrence.js";
 import { getProjectKey } from "../middleware/auth.js";
@@ -134,4 +134,74 @@ messagesRoutes.get("/:id", async (c) => {
   if (!authz.ok) return c.json({ error: authz.error }, authz.status);
 
   return c.json(rows[0]);
+});
+
+// ─── List / audit endpoints ─────────────────────────────────
+//
+// admin UI や運用者が「何が予約中 / 失敗したか」を即座に把握できるように
+// scheduled_messages を status/channel/userId/date でクエリできる
+// 一覧と、メッセージ単位の delivery 試行履歴を公開する。
+
+/// GET /api/messages
+/// クエリ: status / channel / userId / from / to / limit (既定 50, 最大 500) / offset
+///   - 指定された projectKey のメッセージのみ返す
+///   - 並び順は sendAt desc (最新予約から)
+messagesRoutes.get("/", async (c) => {
+  const projectKey = getProjectKey(c);
+  if (!projectKey) return c.json({ error: "Project token required" }, 401);
+
+  const q = c.req.query();
+  const limit  = Math.min(Math.max(Number(q.limit ?? 50) | 0, 1), 500);
+  const offset = Math.max(Number(q.offset ?? 0) | 0, 0);
+
+  const conds = [eq(schema.scheduledMessages.projectKey, projectKey)];
+  if (q.status)  conds.push(eq(schema.scheduledMessages.status,  q.status as MessageStatus));
+  if (q.channel) conds.push(eq(schema.scheduledMessages.channel, q.channel as ChannelType));
+  if (q.userId)  conds.push(eq(schema.scheduledMessages.userId,  q.userId));
+  if (q.from) {
+    const from = new Date(q.from);
+    if (!isNaN(from.getTime())) conds.push(gte(schema.scheduledMessages.sendAt, from));
+  }
+  if (q.to) {
+    const to = new Date(q.to);
+    if (!isNaN(to.getTime())) conds.push(lte(schema.scheduledMessages.sendAt, to));
+  }
+
+  const rows = await db.select().from(schema.scheduledMessages)
+    .where(and(...conds))
+    .orderBy(desc(schema.scheduledMessages.sendAt))
+    .limit(limit)
+    .offset(offset);
+
+  // 合計件数 (pagination 用). 小規模運用なら十分、大規模なら後述の
+  // cursor ベース listing に差し替え可能。
+  const totalRows = await db.select({ n: sql<number>`count(*)::int` })
+    .from(schema.scheduledMessages)
+    .where(and(...conds));
+  const total = totalRows[0]?.n ?? 0;
+
+  return c.json({ items: rows, total, limit, offset });
+});
+
+/// GET /api/messages/:id/logs
+/// 指定メッセージの delivery_logs を新しい順で返す。リトライの試行経過や
+/// エラー内容の参照に使う。
+messagesRoutes.get("/:id/logs", async (c) => {
+  const projectKey = getProjectKey(c);
+  if (!projectKey) return c.json({ error: "Project token required" }, 401);
+
+  const id = c.req.param("id");
+  // projectKey 越境を防ぐため、メッセージ自体の所有確認を先に行う
+  const msg = await db.select({ id: schema.scheduledMessages.id })
+    .from(schema.scheduledMessages)
+    .where(and(
+      eq(schema.scheduledMessages.id, id),
+      eq(schema.scheduledMessages.projectKey, projectKey),
+    )).limit(1);
+  if (msg.length === 0) return c.json({ error: "Message not found" }, 404);
+
+  const logs = await db.select().from(schema.deliveryLogs)
+    .where(eq(schema.deliveryLogs.messageId, id))
+    .orderBy(desc(schema.deliveryLogs.attemptedAt));
+  return c.json({ messageId: id, logs });
 });
