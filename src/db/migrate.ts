@@ -146,5 +146,21 @@ export async function ensureSchema(): Promise<void> {
   await pgClient`CREATE INDEX IF NOT EXISTS idx_admin_access_project ON admin_access_logs(project_key, created_at)`;
   await pgClient`CREATE INDEX IF NOT EXISTS idx_admin_access_target ON admin_access_logs(target_user_id, created_at)`;
 
+  // channel_credentials (チャネル配信用プラットフォーム認証情報)
+  await pgClient`
+    CREATE TABLE IF NOT EXISTS channel_credentials (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT 'default',
+      credentials JSONB NOT NULL DEFAULT '{}',
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS unique_channel_cred ON channel_credentials(project_key, channel, name)`;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_channel_cred_lookup ON channel_credentials(project_key, channel)`;
+
   console.log("[db] schema 確認完了");
 }

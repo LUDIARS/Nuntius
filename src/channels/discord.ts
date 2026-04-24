@@ -2,21 +2,34 @@
  * Discord Webhook への配信
  *
  * payload:
- *   webhookUrl: string  — 送信先 (未指定時は env の DISCORD_DEFAULT_WEBHOOK_URL)
- *   content:    string  — 本文 (2000文字以内)
- *   embeds:     unknown[] (任意)
+ *   webhookUrl:     string  — 送信先 URL を直接指定 (最優先)
+ *   credentialName: string  — channel_credentials.name を参照 (省略時 "default")
+ *   content:        string  — 本文 (2000文字以内)
+ *   embeds:         unknown[] (任意)
+ *
+ * credentials (JSONB): { webhookUrl: string }
  */
 
 import type { ChannelDispatcher, DispatchResult } from "./types.js";
 import type { ScheduledMessage } from "../db/schema.js";
+import { loadChannelCredentials } from "./credentials.js";
 
 export const discordDispatcher: ChannelDispatcher = {
   channel: "discord",
   async dispatch(message: ScheduledMessage): Promise<DispatchResult> {
     const p = message.payload as Record<string, unknown>;
-    const webhookUrl = (p.webhookUrl as string | undefined) ?? process.env.DISCORD_DEFAULT_WEBHOOK_URL ?? "";
+    let webhookUrl = (p.webhookUrl as string | undefined) ?? "";
     if (!webhookUrl) {
-      return { success: false, error: "No Discord webhook URL configured" };
+      const credName = (p.credentialName as string | undefined) ?? "default";
+      const creds = await loadChannelCredentials<{ webhookUrl?: string }>(
+        message.projectKey,
+        "discord",
+        credName,
+      );
+      webhookUrl = creds?.webhookUrl ?? "";
+    }
+    if (!webhookUrl) {
+      return { success: false, error: "No Discord webhook URL configured (channel_credentials)" };
     }
 
     const body: Record<string, unknown> = {};

@@ -236,6 +236,37 @@ export const adminAccessLogs = pgTable(
   ],
 );
 
+// ─── Channel Credentials (プラットフォーム認証情報) ───────
+// Slack / Discord / LINE / Alexa / SMS など、チャネル配信に必要な API 認証情報を
+// projectKey 単位で保持する。同一チャネルに複数設定を持てる (name で識別)。
+//
+// credentials の構造はチャネルごとに異なる:
+//   slack:   { webhookUrl }
+//   discord: { webhookUrl }
+//   line:    { channelAccessToken }
+//   alexa:   { clientId, clientSecret, scope?, endpoint? }
+//   sms:     { accessKeyId, secretAccessKey, region?, senderId? }
+
+export const channelCredentials = pgTable(
+  "channel_credentials",
+  {
+    id: text("id").primaryKey(),
+    projectKey: text("project_key").notNull(),
+    channel: text("channel").$type<ChannelType>().notNull(),
+    /** 同一チャネル内の識別名 (既定は "default") */
+    name: text("name").notNull().default("default"),
+    /** チャネル依存の認証情報 JSON */
+    credentials: jsonb("credentials").notNull().default({}),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("unique_channel_cred").on(t.projectKey, t.channel, t.name),
+    index("idx_channel_cred_lookup").on(t.projectKey, t.channel),
+  ],
+);
+
 // ─── Types ────────────────────────────────────────────────
 
 export type ScheduledMessage = typeof scheduledMessages.$inferSelect;
@@ -250,3 +281,5 @@ export type WebNotification = typeof webNotifications.$inferSelect;
 export type NewWebNotification = typeof webNotifications.$inferInsert;
 export type AdminAccessLog = typeof adminAccessLogs.$inferSelect;
 export type NewAdminAccessLog = typeof adminAccessLogs.$inferInsert;
+export type ChannelCredential = typeof channelCredentials.$inferSelect;
+export type NewChannelCredential = typeof channelCredentials.$inferInsert;
