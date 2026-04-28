@@ -11,6 +11,8 @@ import { topicsRoutes } from "./routes/topics.js";
 import { templatesRoutes } from "./routes/templates.js";
 import { inboxRoutes } from "./routes/inbox.js";
 import { deliveryLogsRoutes } from "./routes/delivery-logs.js";
+import { discordRoutes } from "./routes/discord.js";
+import { credentialsRoutes } from "./routes/credentials.js";
 import { supportedChannels } from "./channels/index.js";
 import { setupWebSocket } from "./ws/handler.js";
 import { registerNuntiusCommands } from "./ws/register-commands.js";
@@ -80,12 +82,16 @@ export function createApp() {
   app.use("/api/templates/*", projectAuth());
   app.use("/api/inbox/*", projectAuth());
   app.use("/api/delivery-logs/*", projectAuth());
+  app.use("/api/discord/*", projectAuth());
+  app.use("/api/credentials/*", projectAuth());
 
   app.route("/api/messages", messagesRoutes);
   app.route("/api/topics", topicsRoutes);
   app.route("/api/templates", templatesRoutes);
   app.route("/api/inbox", inboxRoutes);
   app.route("/api/delivery-logs", deliveryLogsRoutes);
+  app.route("/api/discord", discordRoutes);
+  app.route("/api/credentials", credentialsRoutes);
 
   app.get("/", (c) => {
     return c.json({

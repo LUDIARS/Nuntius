@@ -21,12 +21,13 @@ export const discordDispatcher: ChannelDispatcher = {
     let webhookUrl = (p.webhookUrl as string | undefined) ?? "";
     if (!webhookUrl) {
       const credName = (p.credentialName as string | undefined) ?? "default";
-      const creds = await loadChannelCredentials<{ webhookUrl?: string }>(
+      // 新形式: credentials.token (= webhook URL) / 旧形式: credentials.webhookUrl も互換維持
+      const creds = await loadChannelCredentials<{ token?: string; webhookUrl?: string }>(
         message.projectKey,
         "discord",
         credName,
       );
-      webhookUrl = creds?.webhookUrl ?? "";
+      webhookUrl = creds?.token ?? creds?.webhookUrl ?? "";
     }
     if (!webhookUrl) {
       return { success: false, error: "No Discord webhook URL configured (channel_credentials)" };

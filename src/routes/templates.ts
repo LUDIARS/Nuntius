@@ -10,7 +10,7 @@ import { Hono } from "hono";
 import { v4 as uuidv4 } from "uuid";
 import { eq, and } from "drizzle-orm";
 import { db, schema } from "../db/connection.js";
-import type { ChannelType, MessageTemplate } from "../db/schema.js";
+import type { ChannelType, MessageTemplate, ScheduledMessage } from "../db/schema.js";
 import { getProjectKey } from "../middleware/auth.js";
 
 export const templatesRoutes = new Hono();
@@ -45,6 +45,8 @@ interface TemplateBody {
   body: string;
   variables?: TemplateVariable[];
   mentions?: TemplateMention[];
+  /** 通知タイプ固有の設定 (default payload) */
+  channelConfig?: Record<string, unknown>;
 }
 
 // ─── CRUD ─────────────────────────────────────────────────
@@ -103,6 +105,7 @@ templatesRoutes.post("/", async (c) => {
     body: body.body,
     variables: body.variables ?? [],
     mentions: body.mentions ?? [],
+    channelConfig: body.channelConfig ?? {},
     projectKey,
   });
   return c.json({ id, name: body.name }, 201);
@@ -146,6 +149,7 @@ templatesRoutes.put("/:id", async (c) => {
   if (body.body !== undefined) updates.body = body.body;
   if (body.variables !== undefined) updates.variables = body.variables;
   if (body.mentions !== undefined) updates.mentions = body.mentions;
+  if (body.channelConfig !== undefined) updates.channelConfig = body.channelConfig;
 
   await db.update(schema.messageTemplates).set(updates)
     .where(eq(schema.messageTemplates.id, id));
@@ -162,6 +166,49 @@ templatesRoutes.delete("/:id", async (c) => {
     eq(schema.messageTemplates.projectKey, projectKey),
   ));
   return c.json({ id, deleted: true });
+});
+
+// POST /api/templates/:id/test-send — テスト送信 (値を差し込んで即時 dispatch)
+templatesRoutes.post("/:id/test-send", async (c) => {
+  const projectKey = getProjectKey(c);
+  if (!projectKey) return c.json({ error: "Project token required" }, 401);
+  const id = c.req.param("id");
+  const rows = await db.select().from(schema.messageTemplates)
+    .where(and(
+      eq(schema.messageTemplates.id, id),
+      eq(schema.messageTemplates.projectKey, projectKey),
+    )).limit(1);
+  if (rows.length === 0) return c.json({ error: "Template not found" }, 404);
+
+  const pattern = rows[0];
+  const reqBody = await c.req.json<{ values?: Record<string, unknown> }>().catch(() => ({}));
+  const channel = pattern.channel === "all" ? undefined : (pattern.channel as ChannelType);
+  if (!channel) {
+    return c.json({ error: "Pattern has no specific channel; cannot test-send" }, 400);
+  }
+
+  const rendered = renderPattern(pattern, { values: reqBody.values ?? {}, channel, extraMentions: [] });
+  const cfg = (pattern.channelConfig ?? {}) as Record<string, string | undefined>;
+
+  const { getDispatcher } = await import("../channels/index.js");
+  const dispatcher = getDispatcher(channel);
+  if (!dispatcher) return c.json({ error: `No dispatcher for channel: ${channel}` }, 400);
+
+  // 仮の ScheduledMessage を構築 — 永続化せず直接 dispatch
+  const fakeMessage = {
+    id: `test_${Date.now()}`,
+    projectKey,
+    channel,
+    payload: {
+      content: rendered.body,
+      ...(rendered.subject ? { subject: rendered.subject } : {}),
+      // channelConfig からコピー (credentialName / channelId / serverId / from / etc.)
+      ...cfg,
+    },
+  } as unknown as ScheduledMessage;
+
+  const result = await dispatcher.dispatch(fakeMessage);
+  return c.json({ success: result.success, error: result.error, httpStatus: result.httpStatus, rendered });
 });
 
 // POST /api/templates/:id/render — プレビュー (values を差し込んだ結果を返す)
@@ -235,7 +282,7 @@ export function renderPattern(
 
   const render = (str: string): string => {
     // {{@key}} → mention を先に処理 (key と重ならないよう @ プレフィクス)
-    const withMentions = str.replace(/\{\{@([\w.-]+)\}\}/g, (_, key) => {
+    const withMentions = str.replace(/\{\{@([\w.:-]+)\}\}/g, (_, key) => {
       const m = mentionMap.get(key);
       return m ? resolveMentionValue(m, opts.channel) : "";
     });

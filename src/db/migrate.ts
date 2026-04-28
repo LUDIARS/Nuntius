@@ -88,6 +88,7 @@ export async function ensureSchema(): Promise<void> {
   // 後方互換: 既存テーブルに新カラムを追加 (冪等)
   await pgClient`ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS description TEXT`;
   await pgClient`ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS mentions JSONB NOT NULL DEFAULT '[]'`;
+  await pgClient`ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS channel_config JSONB NOT NULL DEFAULT '{}'`;
   await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS unique_template_name ON message_templates(project_key, name, channel, locale)`;
 
   // delivery_logs

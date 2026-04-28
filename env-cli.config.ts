@@ -51,6 +51,12 @@ const config: EnvCliConfig = {
     IMPERATIVUS_URL: "",
     IMPERATIVUS_API_TOKEN: "",
 
+    // ─── Nuntius 共有 Discord BOT ──────────────────────────
+    // 全プロジェクトで共有する Discord BOT トークン。
+    // 個別 channel_credentials.botToken があればそちらが優先される。
+    // BOT に対する Server Members Intent 有効化 + 各サーバへの招待が必要。
+    NUNTIUS_DISCORD_BOT_TOKEN: "",
+
     // ─── Email (SMTP) ──────────────────────────────────────
     SMTP_URL: "",
     SMTP_FROM: "noreply@localhost",

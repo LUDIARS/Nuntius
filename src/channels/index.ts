@@ -6,6 +6,7 @@ import type { ChannelType } from "../db/schema.js";
 import type { ChannelDispatcher } from "./types.js";
 import { slackDispatcher } from "./slack.js";
 import { discordDispatcher } from "./discord.js";
+import { discordBotDispatcher } from "./discord-bot.js";
 import { lineDispatcher } from "./line.js";
 import { webhookDispatcher } from "./webhook.js";
 import { emailDispatcher } from "./email.js";
@@ -17,6 +18,7 @@ import { webDispatcher } from "./web.js";
 const dispatchers: Partial<Record<ChannelType, ChannelDispatcher>> = {
   slack: slackDispatcher,
   discord: discordDispatcher,
+  discord_bot: discordBotDispatcher,
   line: lineDispatcher,
   webhook: webhookDispatcher,
   email: emailDispatcher,

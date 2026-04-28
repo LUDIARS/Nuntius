@@ -20,12 +20,17 @@ import {
 
 // ─── Channel 型 ──────────────────────────────────────────────
 // 対応チャネル:
-//   slack / discord / line / webhook
+//   slack / discord (Webhook) / discord_bot / line / webhook
 //   email / sms / alexa / voice (Imperativus リレー)
 //   web: in-app 通知 (Nuntius に保存し、クライアントが REST で取得)
+//
+// Discord は 2 系統:
+//   discord     — Webhook URL 配信 (credentials: { webhookUrl, serverId? })
+//   discord_bot — Bot API 経由 (credentials: { botToken, channelId, serverId })
 export type ChannelType =
   | "slack"
   | "discord"
+  | "discord_bot"
   | "line"
   | "webhook"
   | "alexa"
@@ -141,6 +146,13 @@ export const messageTemplates = pgTable(
      * 形式: [{ key, label, channelValues: { slack?: "<@U123>", discord?: "<@123>", line?: "@user", web?: "@name" } }]
      */
     mentions: jsonb("mentions").notNull().default([]),
+    /**
+     * 通知タイプ固有の設定 (default payload)
+     * 例: discord_bot → { credentialName: "default", channelId?: "..." }
+     *     email      → { from?: "...", replyTo?: "..." }
+     * 形状はチャネルごとに異なるため Record<string, unknown>。送信時に payload で override 可能。
+     */
+    channelConfig: jsonb("channel_config").notNull().default({}),
     projectKey: text("project_key").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

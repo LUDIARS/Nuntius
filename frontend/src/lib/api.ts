@@ -6,7 +6,7 @@
  */
 
 export const CHANNELS = [
-  'slack', 'discord', 'line', 'webhook',
+  'slack', 'discord', 'discord_bot', 'line', 'webhook',
   'email', 'sms', 'alexa', 'voice', 'web',
 ] as const
 export type ChannelType = (typeof CHANNELS)[number]
@@ -14,7 +14,8 @@ export type ChannelType = (typeof CHANNELS)[number]
 export const CHANNEL_LABELS: Record<ChannelType | 'all', string> = {
   all: '全チャネル',
   slack: 'Slack',
-  discord: 'Discord',
+  discord: 'Discord (Webhook)',
+  discord_bot: 'Discord (BOT)',
   line: 'LINE',
   webhook: 'Webhook',
   email: 'Email',
@@ -50,6 +51,7 @@ export interface Pattern {
   body: string
   variables: TemplateVariable[]
   mentions: TemplateMention[]
+  channelConfig?: Record<string, unknown>
   projectKey: string
   createdAt: string
   updatedAt: string
@@ -64,6 +66,7 @@ export interface PatternDraft {
   body: string
   variables: TemplateVariable[]
   mentions: TemplateMention[]
+  channelConfig?: Record<string, unknown>
 }
 
 export interface MentionSuggestion {
@@ -187,8 +190,76 @@ export const patternsApi = {
   }): Promise<{ subject: string | null; body: string }> {
     return request('POST', `/api/templates/${encodeURIComponent(id)}/render`, input)
   },
+  testSend(id: string, values: Record<string, unknown>): Promise<{ success: boolean; error?: string; httpStatus?: number; rendered: { subject: string | null; body: string } }> {
+    return request('POST', `/api/templates/${encodeURIComponent(id)}/test-send`, { values })
+  },
   mentionSuggestions(channel?: ChannelType | 'all'): Promise<{ mentions: MentionSuggestion[] }> {
     const qs = channel ? `?channel=${encodeURIComponent(channel)}` : ''
     return request('GET', `/api/templates/mentions${qs}`)
+  },
+}
+
+// ── credentials API ──────────────────────────────────
+
+export interface ChannelCredentialRow {
+  channel: ChannelType
+  name: string
+  enabled: boolean
+  updatedAt: string
+}
+
+export const credentialsApi = {
+  list(): Promise<{ credentials: ChannelCredentialRow[] }> {
+    return request('GET', '/api/credentials')
+  },
+  get(channel: ChannelType, name: string): Promise<{ channel: ChannelType; name: string; credentials: Record<string, unknown> }> {
+    return request('GET', `/api/credentials/${encodeURIComponent(channel)}/${encodeURIComponent(name)}`)
+  },
+  save(channel: ChannelType, name: string, credentials: Record<string, unknown>, enabled = true): Promise<{ ok: true }> {
+    return request('PUT', `/api/credentials/${encodeURIComponent(channel)}/${encodeURIComponent(name)}`, { credentials, enabled })
+  },
+  remove(channel: ChannelType, name: string): Promise<{ ok: true }> {
+    return request('DELETE', `/api/credentials/${encodeURIComponent(channel)}/${encodeURIComponent(name)}`)
+  },
+}
+
+// ── Discord ─────────────────────────────────────────
+
+export interface DiscordMentionEntry {
+  key: string
+  label: string
+  value: string
+  type: 'role' | 'member' | 'channel'
+}
+
+export interface DiscordGuildSummary { id: string; name: string; icon: string | null }
+export interface DiscordChannelSummary { id: string; name: string; type: number }
+
+export const discordApi = {
+  botStatus(): Promise<{ shared_bot_configured: boolean }> {
+    return request('GET', '/api/discord/bot-status')
+  },
+  fetchMentions(input: {
+    channel?: 'discord' | 'discord_bot'
+    credentialName?: string
+    botToken?: string
+    serverId?: string
+  } = {}): Promise<{ entries: DiscordMentionEntry[]; warnings: string[] }> {
+    return request('POST', '/api/discord/mentions', input)
+  },
+  fetchGuilds(input: {
+    channel?: 'discord' | 'discord_bot'
+    credentialName?: string
+    botToken?: string
+  } = {}): Promise<{ guilds: DiscordGuildSummary[] }> {
+    return request('POST', '/api/discord/guilds', input)
+  },
+  fetchChannels(input: {
+    serverId: string
+    channel?: 'discord' | 'discord_bot'
+    credentialName?: string
+    botToken?: string
+  }): Promise<{ channels: DiscordChannelSummary[] }> {
+    return request('POST', '/api/discord/channels', input)
   },
 }
