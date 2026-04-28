@@ -35,6 +35,27 @@ export function createApp() {
   });
 
   app.use("*", logger());
+
+  // 構造化 access ログ
+  app.use("*", async (c, next) => {
+    const t0 = Date.now();
+    let thrown: unknown = undefined;
+    try { await next(); } catch (err) { thrown = err; throw err; }
+    finally {
+      const status = c.res?.status ?? (thrown ? 500 : 0);
+      const userId = (c.get("user") as { id?: string } | undefined)?.id;
+      const entry: Record<string, unknown> = {
+        ts: new Date().toISOString(),
+        method: c.req.method, path: c.req.path,
+        status, durationMs: Date.now() - t0,
+      };
+      if (userId) entry.userId = userId;
+      if (thrown) entry.error = thrown instanceof Error ? thrown.message : String(thrown);
+      const tag = status >= 500 ? "[http-error]" : status >= 400 ? "[http-warn]" : "[http]";
+      console.log(`${tag} ${JSON.stringify(entry)}`);
+    }
+  });
+
   app.use("*", cors({
     origin: process.env.CORS_ORIGIN ?? "*",
     credentials: true,
