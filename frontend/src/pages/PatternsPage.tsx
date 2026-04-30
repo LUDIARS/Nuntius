@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import {
-  CHANNELS, CHANNEL_LABELS,
+  CHANNEL_LABELS,
   patternsApi, credentialsApi, discordApi,
-  type Pattern, type PatternDraft, type TemplateVariable, type TemplateMention,
+  type Pattern, type PatternDraft, type TemplateVariable,
   type ChannelType, type DiscordMentionEntry,
   type ChannelCredentialRow, type DiscordGuildSummary, type DiscordChannelSummary,
 } from '../lib/api'
@@ -177,18 +177,6 @@ export function PatternsPage() {
     return Array.from(set)
   }, [draft])
 
-  const extractedMentionKeys = useMemo(() => {
-    if (!draft) return []
-    const set = new Set<string>()
-    // mention key は role:NAME / user:NAME のように `:` を含むのでクラスに追加
-    const re = /\{\{@([\w.:-]+)\}\}/g
-    for (const src of [draft.subject ?? '', draft.body]) {
-      let m: RegExpExecArray | null
-      while ((m = re.exec(src)) !== null) set.add(m[1])
-    }
-    return Array.from(set)
-  }, [draft])
-
   const handleSelect = (id: string | null) => {
     selectPattern(id)
     setListOpen(false)  // モバイル: 選択後オーバレイ閉じる
@@ -256,7 +244,6 @@ export function PatternsPage() {
               onDelete={removeDraft}
               saving={saving}
               extractedVars={extractedVars}
-              extractedMentionKeys={extractedMentionKeys}
             />
 
       {/* テスト送信パネル: editor の下に縦並びで配置 */}
@@ -325,7 +312,7 @@ export function PatternsPage() {
 
 // ── 編集フォーム ─────────────────────────────────────
 
-function PatternForm({ draft, onChange, isNew, onSave, onDelete, saving, extractedVars, extractedMentionKeys }: {
+function PatternForm({ draft, onChange, isNew, onSave, onDelete, saving, extractedVars }: {
   draft: PatternDraft
   onChange: (d: PatternDraft) => void
   isNew: boolean
@@ -333,7 +320,6 @@ function PatternForm({ draft, onChange, isNew, onSave, onDelete, saving, extract
   onDelete: () => void
   saving: boolean
   extractedVars: string[]
-  extractedMentionKeys: string[]
 }) {
   // Discord mention 自動取得 (server 選択時)
   const cfg = (draft.channelConfig ?? {}) as Record<string, string | undefined>
@@ -444,25 +430,8 @@ function PatternForm({ draft, onChange, isNew, onSave, onDelete, saving, extract
     onChange({ ...draft, variables: draft.variables.filter((_, idx) => idx !== i) })
   }
 
-  const addMention = () => {
-    onChange({
-      ...draft,
-      mentions: [...draft.mentions, { key: '', label: '', channelValues: {} }],
-    })
-  }
-  const updateMention = (i: number, m: TemplateMention) => {
-    const next = [...draft.mentions]
-    next[i] = m
-    onChange({ ...draft, mentions: next })
-  }
-  const removeMention = (i: number) => {
-    onChange({ ...draft, mentions: draft.mentions.filter((_, idx) => idx !== i) })
-  }
-
   const varNames = new Set(draft.variables.map((v) => v.name))
   const missingVars = extractedVars.filter((v) => !varNames.has(v))
-  const mentionKeys = new Set(draft.mentions.map((m) => m.key))
-  const missingMentionKeys = extractedMentionKeys.filter((k) => !mentionKeys.has(k))
 
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSave() }} className="pattern-form">

@@ -23,7 +23,8 @@ discordRoutes.post("/guilds", async (c) => {
   const projectKey = getProjectKey(c);
   if (!projectKey) return c.json({ error: "project context required" }, 401);
 
-  const body = await c.req.json<{ credentialName?: string; channel?: "discord" | "discord_bot"; botToken?: string }>().catch(() => ({}));
+  type GuildsBody = { credentialName?: string; channel?: "discord" | "discord_bot"; botToken?: string };
+  const body = await c.req.json<GuildsBody>().catch(() => ({} as GuildsBody));
   const credName = body.credentialName ?? "default";
   const channel = body.channel ?? "discord_bot";
 
@@ -41,7 +42,8 @@ discordRoutes.post("/channels", async (c) => {
   const projectKey = getProjectKey(c);
   if (!projectKey) return c.json({ error: "project context required" }, 401);
 
-  const body = await c.req.json<{ serverId: string; credentialName?: string; channel?: "discord" | "discord_bot"; botToken?: string }>().catch(() => ({} as { serverId?: string }));
+  type ChannelsBody = { serverId?: string; credentialName?: string; channel?: "discord" | "discord_bot"; botToken?: string };
+  const body = await c.req.json<ChannelsBody>().catch(() => ({} as ChannelsBody));
   if (!body.serverId) return c.json({ error: "serverId is required" }, 400);
   const credName = body.credentialName ?? "default";
   const channel = body.channel ?? "discord_bot";
@@ -59,7 +61,7 @@ discordRoutes.post("/mentions", async (c) => {
   const projectKey = getProjectKey(c);
   if (!projectKey) return c.json({ error: "project context required" }, 401);
 
-  const body = await c.req.json<{
+  type MentionsBody = {
     /** 既定: "default" */
     credentialName?: string;
     /** "discord" (Webhook) または "discord_bot"。default は discord_bot */
@@ -68,7 +70,8 @@ discordRoutes.post("/mentions", async (c) => {
     botToken?: string;
     /** credentials の serverId を上書きしたい場合 (任意) */
     serverId?: string;
-  }>().catch(() => ({}));
+  };
+  const body = await c.req.json<MentionsBody>().catch(() => ({} as MentionsBody));
 
   const credName = body.credentialName ?? "default";
   const channel = body.channel ?? "discord_bot";

@@ -181,7 +181,8 @@ templatesRoutes.post("/:id/test-send", async (c) => {
   if (rows.length === 0) return c.json({ error: "Template not found" }, 404);
 
   const pattern = rows[0];
-  const reqBody = await c.req.json<{ values?: Record<string, unknown> }>().catch(() => ({}));
+  type TestSendBody = { values?: Record<string, unknown> };
+  const reqBody = await c.req.json<TestSendBody>().catch(() => ({} as TestSendBody));
   const channel = pattern.channel === "all" ? undefined : (pattern.channel as ChannelType);
   if (!channel) {
     return c.json({ error: "Pattern has no specific channel; cannot test-send" }, 400);

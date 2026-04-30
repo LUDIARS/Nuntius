@@ -47,7 +47,7 @@ export function createApp() {
     try { await next(); } catch (err) { thrown = err; throw err; }
     finally {
       const status = c.res?.status ?? (thrown ? 500 : 0);
-      const userId = (c.get("user") as { id?: string } | undefined)?.id;
+      const userId = (c.get("user" as never) as { id?: string } | undefined)?.id;
       const entry: Record<string, unknown> = {
         ts: new Date().toISOString(),
         method: c.req.method, path: c.req.path,

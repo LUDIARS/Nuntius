@@ -92,7 +92,7 @@ export function CredentialsPage() {
     if (!confirm(`${CHANNEL_LABELS[draft.channel]} / "${draft.name}" を削除しますか?`)) return
     try {
       await credentialsApi.remove(draft.channel, draft.name)
-      setDraft(null); setMentions([]); setMentionWarnings([])
+      setDraft(null)
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
