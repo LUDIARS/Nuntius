@@ -14,6 +14,7 @@ import { voiceDispatcher } from "./voice.js";
 import { alexaDispatcher } from "./alexa.js";
 import { smsDispatcher } from "./sms.js";
 import { webDispatcher } from "./web.js";
+import { webpushDispatcher } from "./webpush.js";
 
 const dispatchers: Partial<Record<ChannelType, ChannelDispatcher>> = {
   slack: slackDispatcher,
@@ -26,6 +27,7 @@ const dispatchers: Partial<Record<ChannelType, ChannelDispatcher>> = {
   alexa: alexaDispatcher,
   sms: smsDispatcher,
   web: webDispatcher,
+  webpush: webpushDispatcher,
 };
 
 export function getDispatcher(channel: ChannelType): ChannelDispatcher | null {
