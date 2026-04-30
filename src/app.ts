@@ -13,6 +13,8 @@ import { inboxRoutes } from "./routes/inbox.js";
 import { deliveryLogsRoutes } from "./routes/delivery-logs.js";
 import { discordRoutes } from "./routes/discord.js";
 import { credentialsRoutes } from "./routes/credentials.js";
+import { pushRoutes } from "./routes/push.js";
+import { notifyRoutes } from "./routes/notify.js";
 import { supportedChannels } from "./channels/index.js";
 import { setupWebSocket } from "./ws/handler.js";
 import { registerNuntiusCommands } from "./ws/register-commands.js";
@@ -84,6 +86,10 @@ export function createApp() {
   app.use("/api/delivery-logs/*", projectAuth());
   app.use("/api/discord/*", projectAuth());
   app.use("/api/credentials/*", projectAuth());
+  app.use("/api/notify/*", projectAuth());
+  // /api/push: vapid-public-key だけ認証不要、 それ以外は projectAuth
+  app.use("/api/push/subscriptions/*", projectAuth());
+  app.use("/api/push/subscriptions", projectAuth());
 
   app.route("/api/messages", messagesRoutes);
   app.route("/api/topics", topicsRoutes);
@@ -92,6 +98,8 @@ export function createApp() {
   app.route("/api/delivery-logs", deliveryLogsRoutes);
   app.route("/api/discord", discordRoutes);
   app.route("/api/credentials", credentialsRoutes);
+  app.route("/api/push", pushRoutes);
+  app.route("/api/notify", notifyRoutes);
 
   app.get("/", (c) => {
     return c.json({

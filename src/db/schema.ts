@@ -37,7 +37,8 @@ export type ChannelType =
   | "email"
   | "sms"
   | "voice"
-  | "web";
+  | "web"
+  | "webpush";
 
 export type MessageStatus =
   | "pending"    // キュー投入済、送信待ち
@@ -213,6 +214,73 @@ export const webNotifications = pgTable(
   (t) => [
     index("idx_web_notif_user").on(t.userId, t.createdAt),
     index("idx_web_notif_unread").on(t.userId, t.readAt),
+  ],
+);
+
+// ─── Push Subscriptions (Web Push API) ───────────────────────
+// Service Worker + PushManager.subscribe() で得た購読情報。 iOS 16.4+ /
+// Android Chrome / Desktop で動く。 ユーザは複数端末で購読し得るので、
+// (userId, endpoint) を unique key にする。
+//
+// 暗号化: NUNTIUS_ENCRYPTION_KEY が設定されていれば endpoint / keys を AES-GCM で
+// 暗号化する (channel_credentials と同じ方式)。 未設定なら平文 (dev のみ)。
+
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    /** PushManager 購読の endpoint URL (encrypted) */
+    endpoint: text("endpoint").notNull(),
+    /** ECDH P-256 公開鍵 (base64url, encrypted) */
+    p256dh: text("p256dh").notNull(),
+    /** Auth secret (base64url, encrypted) */
+    auth: text("auth").notNull(),
+    /** UA の User-Agent 文字列 (端末識別ヒント、 任意) */
+    userAgent: text("user_agent"),
+    /** ユーザが付ける端末ラベル (例: "iPhone 15 Pro") */
+    label: text("label"),
+    /** 最終配信成功時刻 (失敗継続で gone marker を立てる) */
+    lastDeliveredAt: timestamp("last_delivered_at", { withTimezone: true }),
+    /** 410 Gone 等で永続失敗が確定した時刻。 null = 有効 */
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    projectKey: text("project_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("idx_push_user").on(t.userId, t.revokedAt),
+    index("idx_push_project").on(t.projectKey),
+    uniqueIndex("unique_push_user_endpoint").on(t.userId, t.endpoint),
+  ],
+);
+
+// ─── Notification Preferences (どの channel で通知を受けたいか) ─────────
+// /api/notify/user (channel-agnostic) が「最適な channel を選ぶ」ために参照する。
+// per (userId, projectKey) の channel 優先順位を保持。
+// 例: { channels: ["webpush","line","web"], lineUserId: "U123...", lineCredential: "default" }
+
+export const notificationPreferences = pgTable(
+  "notification_preferences",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    /** 優先順位付きの channel 配列。 上から試行して endpoint がある最初の channel を採用 */
+    channels: jsonb("channels").$type<ChannelType[]>().notNull().default([]),
+    /** LINE userId (LINE Login + LINE Messaging API で得る) */
+    lineUserId: text("line_user_id"),
+    /** どの channel_credentials.name を使うか (default 既定) */
+    lineCredentialName: text("line_credential_name"),
+    /** Slack DM 用の slack user id */
+    slackUserId: text("slack_user_id"),
+    /** Email アドレス (Cernere に無い人用 / channel_credentials の from と別) */
+    email: text("email"),
+    projectKey: text("project_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("unique_notif_pref_user_project").on(t.userId, t.projectKey),
   ],
 );
 
