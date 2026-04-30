@@ -28,6 +28,7 @@ const TOKEN_LABEL: Partial<Record<ChannelType, { label: string; placeholder?: st
   alexa:        { label: 'API Token' },
   voice:        { label: 'API Token' },
   web:          { label: '(不要)', hint: 'Web in-app は token 不要' },
+  webpush:      { label: '(不要)', hint: 'WebPush は VAPID 鍵 (環境変数) のみ、 channel credentials 不要' },
 }
 
 export function CredentialsPage() {

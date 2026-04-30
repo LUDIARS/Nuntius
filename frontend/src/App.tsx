@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { PatternsPage } from './pages/PatternsPage'
 import { CredentialsPage } from './pages/CredentialsPage'
+import { PreferencesPage } from './pages/PreferencesPage'
 import { LoginPage } from './pages/LoginPage'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 
-type Tab = 'patterns' | 'credentials'
+type Tab = 'patterns' | 'credentials' | 'preferences'
 
 function Shell() {
   const { user, loading, logout } = useAuth()
@@ -37,6 +38,12 @@ function Shell() {
           >
             認証情報
           </button>
+          <button
+            className={`nav-tab${tab === 'preferences' ? ' active' : ''}`}
+            onClick={() => setTab('preferences')}
+          >
+            通知設定
+          </button>
         </nav>
         <div className="token-bar">
           <span className="pill pill-ok">{user.role}</span>
@@ -47,6 +54,7 @@ function Shell() {
       <main className="app-main">
         {tab === 'patterns' && <PatternsPage />}
         {tab === 'credentials' && <CredentialsPage />}
+        {tab === 'preferences' && <PreferencesPage />}
       </main>
     </div>
   )
