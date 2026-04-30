@@ -7,7 +7,7 @@
 
 export const CHANNELS = [
   'slack', 'discord', 'discord_bot', 'line', 'webhook',
-  'email', 'sms', 'alexa', 'voice', 'web',
+  'email', 'sms', 'alexa', 'voice', 'web', 'webpush',
 ] as const
 export type ChannelType = (typeof CHANNELS)[number]
 
@@ -23,6 +23,7 @@ export const CHANNEL_LABELS: Record<ChannelType | 'all', string> = {
   alexa: 'Alexa',
   voice: 'Voice (電話)',
   web: 'Web (In-app)',
+  webpush: 'Web Push',
 }
 
 // ── 型定義 ────────────────────────────────────────────
@@ -261,5 +262,35 @@ export const discordApi = {
     botToken?: string
   }): Promise<{ channels: DiscordChannelSummary[] }> {
     return request('POST', '/api/discord/channels', input)
+  },
+}
+
+// ── notification preferences API ─────────────────────
+
+export interface NotificationPreferences {
+  id?: string
+  userId: string
+  projectKey?: string
+  channels: ChannelType[]
+  lineUserId?: string | null
+  lineCredentialName?: string | null
+  slackUserId?: string | null
+  email?: string | null
+  updatedAt?: string
+}
+
+export const preferencesApi = {
+  get(userId: string): Promise<{ preferences: NotificationPreferences }> {
+    return request('GET', `/api/notify/preferences?userId=${encodeURIComponent(userId)}`)
+  },
+  save(input: {
+    userId: string
+    channels?: ChannelType[]
+    lineUserId?: string | null
+    lineCredentialName?: string | null
+    slackUserId?: string | null
+    email?: string | null
+  }): Promise<{ id: string; status: 'created' | 'updated' }> {
+    return request('PUT', '/api/notify/preferences', input)
   },
 }

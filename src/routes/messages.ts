@@ -4,7 +4,7 @@
 
 import { Hono } from "hono";
 import { v4 as uuidv4 } from "uuid";
-import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
+import { eq, and, desc, gte, lte, sql, like, inArray } from "drizzle-orm";
 import { db, schema } from "../db/connection.js";
 import type { ChannelType, MessageStatus } from "../db/schema.js";
 import { enqueueMessage, cancelMessage } from "../queue/dispatch-queue.js";
@@ -80,6 +80,56 @@ messagesRoutes.post("/schedule", async (c) => {
 
   await enqueueMessage(id, sendAt, body.priority ?? 5);
   return c.json({ id, sendAt: sendAt.toISOString(), status: "pending" }, 201);
+});
+
+// DELETE /api/messages/by-source — source 一致で予約メッセージを一括キャンセル
+//   query / body:
+//     source: 完全一致
+//     sourcePrefix: LIKE 'prefix%' (Actio が "actio.event.<id>.reminder." 等で使う)
+//   pending のものだけが対象。 既に sent/cancelled は無視。
+//
+// `/:id` ルートより先に登録すること (Hono は static > param だが明示的に上に置く)。
+messagesRoutes.delete("/by-source", async (c) => {
+  const projectKey = getProjectKey(c);
+  if (!projectKey) return c.json({ error: "Project token required" }, 401);
+
+  type Body = { source?: string; sourcePrefix?: string };
+  const body = await c.req.json<Body>().catch(() => ({} as Body));
+  const source = body.source ?? c.req.query("source");
+  const sourcePrefix = body.sourcePrefix ?? c.req.query("sourcePrefix");
+
+  if (!source && !sourcePrefix) {
+    return c.json({ error: "source or sourcePrefix is required" }, 400);
+  }
+
+  const conds = [
+    eq(schema.scheduledMessages.projectKey, projectKey),
+    eq(schema.scheduledMessages.status, "pending" as MessageStatus),
+  ];
+  if (source) conds.push(eq(schema.scheduledMessages.source, source));
+  if (sourcePrefix) {
+    // LIKE のメタ文字 (% _) を escape して prefix match のみ
+    const escaped = sourcePrefix.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+    conds.push(like(schema.scheduledMessages.source, `${escaped}%`));
+  }
+
+  const rows = await db.select({ id: schema.scheduledMessages.id })
+    .from(schema.scheduledMessages)
+    .where(and(...conds));
+
+  if (rows.length === 0) return c.json({ count: 0, ids: [] });
+
+  const ids = rows.map((r) => r.id);
+  await db.update(schema.scheduledMessages).set({
+    status: "cancelled",
+    updatedAt: new Date(),
+  }).where(inArray(schema.scheduledMessages.id, ids));
+
+  for (const id of ids) {
+    await cancelMessage(id);
+  }
+
+  return c.json({ count: ids.length, ids });
 });
 
 // DELETE /api/messages/:id — キャンセル
