@@ -24,6 +24,7 @@
 import type { ChannelDispatcher, DispatchResult } from "./types.js";
 import type { ScheduledMessage } from "../db/schema.js";
 import { loadChannelCredentials } from "./credentials.js";
+import { dispatchableAttachments } from "../media/attachment.js";
 
 interface VoiceCreds {
   url?: string;
@@ -61,6 +62,10 @@ export const voiceDispatcher: ChannelDispatcher = {
     }
 
     const voice = (p.voice as string | undefined) ?? creds.voice;
+    // audio 添付があれば URL を Imperativus に渡す (再生は Imperativus 側の判断)
+    const audioUrls = dispatchableAttachments(p)
+      .filter((a) => a.kind === "audio")
+      .map((a) => a.url);
     try {
       const res = await fetch(`${creds.url}/api/voice/speak`, {
         method: "POST",
@@ -68,7 +73,12 @@ export const voiceDispatcher: ChannelDispatcher = {
           "Content-Type": "application/json",
           ...(creds.apiToken ? { Authorization: `Bearer ${creds.apiToken}` } : {}),
         },
-        body: JSON.stringify({ text, userId: message.userId, voice }),
+        body: JSON.stringify({
+          text,
+          userId: message.userId,
+          voice,
+          ...(audioUrls.length > 0 ? { audioUrls } : {}),
+        }),
       });
       const responseText = await res.text().catch(() => "");
       return {

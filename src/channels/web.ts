@@ -7,6 +7,8 @@
  *   link?:     string      — クリック遷移先
  *   icon?:     string      — 表示アイコン URL
  *   metadata?: object      — 追加メタ情報
+ *   attachments?: MediaAttachment[]  — 解決済み URL 付きで metadata.attachments に保存。
+ *                                     クライアント (inbox UI) が描画する。
  *
  * Nuntius の web_notifications テーブルに保存する。
  * クライアントは GET /api/messages/inbox?userId= で取得する。
@@ -16,6 +18,7 @@ import { v4 as uuidv4 } from "uuid";
 import type { ChannelDispatcher, DispatchResult } from "./types.js";
 import type { ScheduledMessage } from "../db/schema.js";
 import { db, schema } from "../db/connection.js";
+import { dispatchableAttachments } from "../media/attachment.js";
 
 export const webDispatcher: ChannelDispatcher = {
   channel: "web",
@@ -33,6 +36,8 @@ export const webDispatcher: ChannelDispatcher = {
     if (p.metadata && typeof p.metadata === "object") {
       Object.assign(metadata, p.metadata as Record<string, unknown>);
     }
+    const attachments = dispatchableAttachments(p);
+    if (attachments.length > 0) metadata.attachments = attachments;
 
     try {
       await db.insert(schema.webNotifications).values({

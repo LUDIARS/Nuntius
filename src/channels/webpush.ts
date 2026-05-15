@@ -13,6 +13,8 @@
  *   badge?:      string
  *   tag?:        string         — 同じ tag は新しいので置換
  *   subscriptionIds?: string[]  — 特定の端末だけに送る (未指定なら user の全端末)
+ *   attachments?: MediaAttachment[]  — image の先頭を通知の大画像 (image) に、
+ *                                     全添付の URL を data.attachments に載せる
  *
  * VAPID 鍵は環境変数:
  *   VAPID_PUBLIC_KEY   — base64url (ブラウザ側 PushManager.subscribe にも渡す)
@@ -28,6 +30,7 @@ import { eq, and, isNull } from "drizzle-orm";
 import type { ChannelDispatcher, DispatchResult } from "./types.js";
 import type { ScheduledMessage } from "../db/schema.js";
 import { db, schema } from "../db/connection.js";
+import { dispatchableAttachments } from "../media/attachment.js";
 
 /** VAPID を 1 度だけ初期化する。 鍵未設定なら配信時にエラー。 */
 let vapidConfigured: boolean | null = null;
@@ -77,6 +80,9 @@ export const webpushDispatcher: ChannelDispatcher = {
       return { success: false, error: "no active push subscription for this user" };
     }
 
+    // メディア添付: image の先頭を通知の大画像に、 全添付 URL を data に載せる
+    const attachments = dispatchableAttachments(p);
+    const firstImage = attachments.find((a) => a.kind === "image");
     const notifPayload = JSON.stringify({
       title,
       body,
@@ -84,7 +90,11 @@ export const webpushDispatcher: ChannelDispatcher = {
       icon:  typeof p.icon === "string"  ? p.icon  : undefined,
       badge: typeof p.badge === "string" ? p.badge : undefined,
       tag:   typeof p.tag === "string"   ? p.tag   : undefined,
-      data:  p.data ?? null,
+      image: firstImage?.url,
+      data:  {
+        ...(p.data && typeof p.data === "object" ? (p.data as Record<string, unknown>) : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
+      },
     });
 
     const results: { id: string; ok: boolean; status?: number; error?: string }[] = [];

@@ -163,5 +163,27 @@ export async function ensureSchema(): Promise<void> {
   await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS unique_channel_cred ON channel_credentials(project_key, channel, name)`;
   await pgClient`CREATE INDEX IF NOT EXISTS idx_channel_cred_lookup ON channel_credentials(project_key, channel)`;
 
+  // media_assets (ホストアップロードされたメディア実体のメタ)
+  await pgClient`
+    CREATE TABLE IF NOT EXISTS media_assets (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      user_id TEXT,
+      kind TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      file_name TEXT,
+      size INTEGER NOT NULL,
+      storage_backend TEXT NOT NULL,
+      storage_key TEXT NOT NULL,
+      sha256 TEXT,
+      expires_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_media_project ON media_assets(project_key)`;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_media_user ON media_assets(user_id)`;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_media_expires ON media_assets(expires_at)`;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_media_sha256 ON media_assets(project_key, sha256)`;
+
   console.log("[db] schema 確認完了");
 }

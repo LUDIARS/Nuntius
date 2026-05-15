@@ -61,6 +61,28 @@ const config: EnvCliConfig = {
     SMTP_URL: "",
     SMTP_FROM: "noreply@localhost",
 
+    // ─── Media 添付 (画像 / 動画 / ファイル送信) ───────────
+    // payload.attachments[] のホスト保存先。
+    //   "s3"    … MinIO / AWS S3 (本番既定)
+    //   "local" … ローカル FS (dev / 小規模、 GET /media/:id で配信)
+    //   "off"   … ホストアップロード無効 (URL passthrough のみ受け付ける)
+    NUNTIUS_MEDIA_BACKEND: "off",
+    // s3 backend 用 (MinIO 互換。 endpoint 指定時は path-style が自動 ON)
+    NUNTIUS_MEDIA_S3_ENDPOINT: "",
+    NUNTIUS_MEDIA_S3_BUCKET: "nuntius-media",
+    NUNTIUS_MEDIA_S3_REGION: "us-east-1",
+    NUNTIUS_MEDIA_S3_ACCESS_KEY: "",
+    NUNTIUS_MEDIA_S3_SECRET_KEY: "",
+    NUNTIUS_MEDIA_S3_FORCE_PATH_STYLE: "",
+    // local backend 用の保存ディレクトリ
+    NUNTIUS_MEDIA_LOCAL_DIR: "./data/media",
+    // GET /media/:id を組み立てる公開ベース URL (LINE 等の外部 PF が取得するため到達可能な URL)
+    NUNTIUS_MEDIA_PUBLIC_BASE_URL: "",
+    // アップロード全体の上限 (bytes、 0 = kind 別上限のみ)
+    NUNTIUS_MEDIA_MAX_BYTES: "0",
+    // アップロード資産の既定 TTL (秒、 0 = 無期限。 既定 7 日)
+    NUNTIUS_MEDIA_DEFAULT_TTL_SEC: "604800",
+
     // NOTE: 以下のチャネル認証情報は DB (channel_credentials) で管理するため env には登録しない:
     //   Slack (webhook URL), Discord (webhook URL), LINE (channel access token),
     //   Alexa (client_id/secret/scope/endpoint), SMS (AWS access key/secret/region/sender_id)

@@ -5,6 +5,8 @@
  *   to:             string  — E.164 形式の電話番号 (例: +819012345678)
  *   text:           string  — 本文
  *   credentialName: string  — channel_credentials.name を参照 (省略時 "default")
+ *   attachments?:   MediaAttachment[]  — SNS は MMS 非対応のため、 本文末尾に
+ *                                       URL を追記する degrade のみ
  *
  * credentials (JSONB):
  *   { accessKeyId, secretAccessKey, region?, senderId? }
@@ -17,6 +19,7 @@
 import type { ChannelDispatcher, DispatchResult } from "./types.js";
 import type { ScheduledMessage } from "../db/schema.js";
 import { loadChannelCredentials } from "./credentials.js";
+import { dispatchableAttachments } from "../media/attachment.js";
 
 interface SmsCreds {
   accessKeyId?: string;
@@ -63,13 +66,20 @@ export const smsDispatcher: ChannelDispatcher = {
   async dispatch(message: ScheduledMessage): Promise<DispatchResult> {
     const p = message.payload as Record<string, unknown>;
     const to = p.to as string | undefined;
-    const text = p.text as string | undefined;
-    if (!to || !text) {
+    const baseText = p.text as string | undefined;
+    if (!to || !baseText) {
       return { success: false, error: "sms payload requires 'to' and 'text'" };
     }
     if (!to.startsWith("+")) {
       return { success: false, error: "sms 'to' must be E.164 format (+countrycode...)" };
     }
+
+    // SNS は MMS 非対応 → 添付は本文末尾に URL を追記する degrade
+    const attachmentUrls = dispatchableAttachments(p).map((a) => a.url);
+    const text =
+      attachmentUrls.length > 0
+        ? `${baseText}\n${attachmentUrls.join("\n")}`
+        : baseText;
 
     const credName = (p.credentialName as string | undefined) ?? "default";
     const creds = (await loadChannelCredentials<SmsCreds>(

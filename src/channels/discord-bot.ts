@@ -8,6 +8,7 @@
  *   credentialName: string  — channel_credentials.name を参照 (省略時 "default")
  *   content:        string  — 本文 (2000文字以内)
  *   embeds:         unknown[] (任意)
+ *   attachments?:   MediaAttachment[]  — multipart で実体添付 (画像は inline 表示)
  *
  * credentials (JSONB): { channelId: string; serverId: string; botToken?: string }
  */
@@ -15,6 +16,8 @@
 import type { ChannelDispatcher, DispatchResult } from "./types.js";
 import type { ScheduledMessage } from "../db/schema.js";
 import { loadChannelCredentials } from "./credentials.js";
+import { dispatchableAttachments } from "../media/attachment.js";
+import { sendDiscordMessage } from "./discord-shared.js";
 
 interface DiscordBotCredentials {
   /** 新形式: token = bot token (空なら共有 BOT) */
@@ -57,31 +60,16 @@ export const discordBotDispatcher: ChannelDispatcher = {
     const body: Record<string, unknown> = {};
     if (typeof p.content === "string") body.content = p.content.slice(0, 2000);
     if (Array.isArray(p.embeds)) body.embeds = p.embeds;
-    if (Object.keys(body).length === 0) {
-      return { success: false, error: "Empty Discord payload (need content or embeds)" };
+    if (Object.keys(body).length === 0 && dispatchableAttachments(p).length === 0) {
+      return { success: false, error: "Empty Discord payload (need content, embeds, or attachments)" };
     }
 
-    try {
-      const res = await fetch(`${DISCORD_API}/channels/${encodeURIComponent(channelId)}/messages`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bot ${botToken}`,
-        },
-        body: JSON.stringify(body),
-      });
-      const responseText = await res.text().catch(() => "");
-      return {
-        success: res.ok,
-        httpStatus: res.status,
-        responseBody: responseText.slice(0, 500),
-        error: res.ok ? undefined : `HTTP ${res.status}`,
-      };
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
+    return sendDiscordMessage({
+      url: `${DISCORD_API}/channels/${encodeURIComponent(channelId)}/messages`,
+      authHeaders: { Authorization: `Bot ${botToken}` },
+      jsonBody: body,
+      projectKey: message.projectKey,
+      payload: p,
+    });
   },
 };

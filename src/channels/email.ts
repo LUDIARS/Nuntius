@@ -9,6 +9,8 @@
  *   cc?:     string | string[]
  *   bcc?:    string | string[]
  *   replyTo?: string
+ *   attachments?: MediaAttachment[]  — 実体添付 (native)。 バイナリを取得して
+ *                                     nodemailer の attachments として同梱する。
  *
  * 環境変数:
  *   SMTP_URL   例: smtp://user:pass@smtp.example.com:587
@@ -20,6 +22,14 @@
 
 import type { ChannelDispatcher, DispatchResult } from "./types.js";
 import type { ScheduledMessage } from "../db/schema.js";
+import { dispatchableAttachments } from "../media/attachment.js";
+import { loadAttachmentBytes } from "../media/resolve.js";
+
+interface MailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+}
 
 // nodemailer Transporter キャッシュ (モジュール単位で 1 つ)
 let transporterPromise: Promise<unknown> | null = null;
@@ -62,6 +72,28 @@ interface MailOptions {
   cc?: string | string[];
   bcc?: string | string[];
   replyTo?: string;
+  attachments?: MailAttachment[];
+}
+
+/** payload.attachments[] のバイナリを取得して nodemailer 形式に変換する。
+ *  個別の取得失敗はスキップ (添付はベストエフォート)。 */
+async function buildMailAttachments(
+  payload: Record<string, unknown>,
+  projectKey: string,
+): Promise<MailAttachment[]> {
+  const out: MailAttachment[] = [];
+  for (const a of dispatchableAttachments(payload)) {
+    try {
+      const { buf, mimeType, fileName } = await loadAttachmentBytes(a, projectKey);
+      out.push({ filename: fileName, content: buf, contentType: mimeType });
+    } catch (err) {
+      console.warn(
+        `[email] attachment skipped (${a.url}):`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  return out;
 }
 
 interface Transporter {
@@ -77,8 +109,10 @@ export const emailDispatcher: ChannelDispatcher = {
     if (!to || !subject) {
       return { success: false, error: "email payload requires 'to' and 'subject'" };
     }
-    if (!p.text && !p.html) {
-      return { success: false, error: "email payload requires 'text' or 'html'" };
+
+    const attachments = await buildMailAttachments(p, message.projectKey);
+    if (!p.text && !p.html && attachments.length === 0) {
+      return { success: false, error: "email payload requires 'text', 'html', or 'attachments'" };
     }
 
     const transporter = (await getTransporter()) as Transporter | null;
@@ -86,7 +120,7 @@ export const emailDispatcher: ChannelDispatcher = {
 
     if (!transporter) {
       console.log(
-        `[email:dev] FROM=${from} TO=${Array.isArray(to) ? to.join(",") : to} SUBJECT=${subject}`,
+        `[email:dev] FROM=${from} TO=${Array.isArray(to) ? to.join(",") : to} SUBJECT=${subject} attachments=${attachments.length}`,
       );
       return { success: true, responseBody: "dev mode (SMTP_URL not configured)" };
     }
@@ -101,6 +135,7 @@ export const emailDispatcher: ChannelDispatcher = {
         cc: p.cc as string | string[] | undefined,
         bcc: p.bcc as string | string[] | undefined,
         replyTo: p.replyTo as string | undefined,
+        ...(attachments.length > 0 ? { attachments } : {}),
       });
       return {
         success: true,

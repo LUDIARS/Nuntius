@@ -347,6 +347,42 @@ export const channelCredentials = pgTable(
   ],
 );
 
+// ─── Media Assets (ホストアップロードされたメディア実体) ───
+// `POST /api/media` でアップロードされた画像 / 動画 / ファイルのメタ情報。
+// 実体は storageBackend (s3 / local) に置き、 ここではメタのみ持つ。
+// payload.attachments[].mediaId からこの行を引いて配信時に URL を解決する。
+// expiresAt 経過後はクリーンアップ対象 (実体 + 行を削除)。
+
+export const mediaAssets = pgTable(
+  "media_assets",
+  {
+    id: text("id").primaryKey(),
+    projectKey: text("project_key").notNull(),
+    /** アップロード主体 (任意、 right-to-delete 用) */
+    userId: text("user_id"),
+    kind: text("kind").$type<"image" | "video" | "audio" | "file">().notNull(),
+    mimeType: text("mime_type").notNull(),
+    fileName: text("file_name"),
+    /** bytes */
+    size: integer("size").notNull(),
+    /** "s3" | "local" */
+    storageBackend: text("storage_backend").notNull(),
+    /** バックエンド内のキー (S3 object key / local 相対パス) */
+    storageKey: text("storage_key").notNull(),
+    /** 整合性確認 / 重複排除用 */
+    sha256: text("sha256"),
+    /** TTL: 経過後にクリーンアップ対象。 null = 無期限 */
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("idx_media_project").on(t.projectKey),
+    index("idx_media_user").on(t.userId),
+    index("idx_media_expires").on(t.expiresAt),
+    index("idx_media_sha256").on(t.projectKey, t.sha256),
+  ],
+);
+
 // ─── Types ────────────────────────────────────────────────
 
 export type ScheduledMessage = typeof scheduledMessages.$inferSelect;
@@ -363,3 +399,5 @@ export type AdminAccessLog = typeof adminAccessLogs.$inferSelect;
 export type NewAdminAccessLog = typeof adminAccessLogs.$inferInsert;
 export type ChannelCredential = typeof channelCredentials.$inferSelect;
 export type NewChannelCredential = typeof channelCredentials.$inferInsert;
+export type MediaAsset = typeof mediaAssets.$inferSelect;
+export type NewMediaAsset = typeof mediaAssets.$inferInsert;
