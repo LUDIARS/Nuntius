@@ -15,25 +15,57 @@
  *   replyToken:     string    — LINE webhook で受け取ったトークン (1 回限り、 30 秒以内)
  *   messages? / text? は push と同じ
  *
+ * メディア添付 (payload.attachments[]):
+ *   image / video → {type:"image"|"video", originalContentUrl, previewImageUrl}
+ *   audio         → {type:"audio", originalContentUrl, duration}
+ *   file          → LINE に汎用ファイルメッセージが無いため URL テキストに degrade
+ *   originalContentUrl は HTTPS 必須 (LINE プラットフォームが取得する)。
+ *
  * credentials (JSONB): { channelAccessToken: string }
  */
 
 import type { ChannelDispatcher, DispatchResult } from "./types.js";
 import type { ScheduledMessage } from "../db/schema.js";
 import { loadChannelCredentials } from "./credentials.js";
+import { dispatchableAttachments } from "../media/attachment.js";
 
 const LINE_PUSH_API = "https://api.line.me/v2/bot/message/push";
 const LINE_REPLY_API = "https://api.line.me/v2/bot/message/reply";
 
 /** payload.text を渡されたら自動で messages に変換する */
-function resolveMessages(p: Record<string, unknown>): unknown[] | null {
+function resolveMessages(p: Record<string, unknown>): unknown[] {
   if (Array.isArray(p.messages) && p.messages.length > 0) {
     return p.messages.slice(0, 5);
   }
   if (typeof p.text === "string" && p.text.trim() !== "") {
     return [{ type: "text", text: p.text.slice(0, 5000) }];
   }
-  return null;
+  return [];
+}
+
+/** payload.attachments[] を LINE message オブジェクトに変換する */
+function attachmentMessages(p: Record<string, unknown>): unknown[] {
+  const msgs: unknown[] = [];
+  for (const a of dispatchableAttachments(p)) {
+    if (a.kind === "image" || a.kind === "video") {
+      msgs.push({
+        type: a.kind,
+        originalContentUrl: a.url,
+        previewImageUrl: a.previewUrl ?? a.url,
+      });
+    } else if (a.kind === "audio") {
+      msgs.push({
+        type: "audio",
+        originalContentUrl: a.url,
+        duration: a.durationMs ?? 60000,
+      });
+    } else {
+      // file: 汎用ファイルメッセージが無いので URL テキストに degrade
+      const label = a.caption ?? a.fileName ?? "ファイル";
+      msgs.push({ type: "text", text: `${label}: ${a.url}` });
+    }
+  }
+  return msgs;
 }
 
 export const lineDispatcher: ChannelDispatcher = {
@@ -51,9 +83,10 @@ export const lineDispatcher: ChannelDispatcher = {
       return { success: false, error: "LINE channelAccessToken not configured (channel_credentials)" };
     }
 
-    const messages = resolveMessages(p);
-    if (!messages) {
-      return { success: false, error: "LINE payload requires 'messages' or 'text'" };
+    // text/messages による本文 + attachments のメディアメッセージを合成 (LINE 上限 5 件)
+    const messages = [...resolveMessages(p), ...attachmentMessages(p)].slice(0, 5);
+    if (messages.length === 0) {
+      return { success: false, error: "LINE payload requires 'messages', 'text', or 'attachments'" };
     }
 
     // mode を判定: replyToken があれば reply、 無ければ push

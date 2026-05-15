@@ -15,6 +15,7 @@ import { discordRoutes } from "./routes/discord.js";
 import { credentialsRoutes } from "./routes/credentials.js";
 import { pushRoutes } from "./routes/push.js";
 import { notifyRoutes } from "./routes/notify.js";
+import { mediaRoutes, mediaPublicRoutes } from "./routes/media.js";
 import { supportedChannels } from "./channels/index.js";
 import { setupWebSocket } from "./ws/handler.js";
 import { registerNuntiusCommands } from "./ws/register-commands.js";
@@ -87,6 +88,8 @@ export function createApp() {
   app.use("/api/discord/*", projectAuth());
   app.use("/api/credentials/*", projectAuth());
   app.use("/api/notify/*", projectAuth());
+  app.use("/api/media/*", projectAuth());
+  app.use("/api/media", projectAuth());
   // /api/push: vapid-public-key だけ認証不要、 それ以外は projectAuth
   app.use("/api/push/subscriptions/*", projectAuth());
   app.use("/api/push/subscriptions", projectAuth());
@@ -100,6 +103,9 @@ export function createApp() {
   app.route("/api/credentials", credentialsRoutes);
   app.route("/api/push", pushRoutes);
   app.route("/api/notify", notifyRoutes);
+  app.route("/api/media", mediaRoutes);
+  // GET /media/:id は公開配信 (認証不要、 外部プラットフォームが取得する)
+  app.route("/media", mediaPublicRoutes);
 
   app.get("/", (c) => {
     return c.json({

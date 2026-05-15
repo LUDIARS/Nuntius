@@ -230,6 +230,34 @@ POST   /api/inbox/:id/read             # 既読化
 DELETE /api/inbox/:id                  # 削除
 ```
 
+### Media 添付 (画像 / 動画 / ファイル)
+```
+POST   /api/media                      # multipart アップロード → { mediaId, url, ... }
+GET    /api/media/:id                  # メタ情報取得 (project スコープ)
+DELETE /api/media/:id                  # 削除 (実体 + 行)
+GET    /media/:id                      # 公開配信 (認証不要、 外部 PF が取得)
+```
+
+メッセージ payload に `attachments[]` を載せると全チャネルに配信される。各要素は
+`url` (公開 URL を passthrough) か `mediaId` (`POST /api/media` でホスト) のどちらか一方を指定する:
+
+```jsonc
+{
+  "channel": "line",
+  "payload": {
+    "text": "資料です",
+    "attachments": [
+      { "kind": "image", "url": "https://cdn.example.com/a.png" },
+      { "kind": "file",  "mediaId": "9f1c..." }
+    ]
+  }
+}
+```
+
+チャネル別の扱い: Email / Discord は実体添付 (native)、LINE / Web / Webhook / WebPush は
+URL 参照、Slack / SMS は URL を本文に degrade、Alexa は非対応。詳細は `CLAUDE.md`。
+ホスト保存先は `NUNTIUS_MEDIA_BACKEND` (`s3` / `local` / `off`) で切り替える。
+
 ## WebSocket (`/ws`)
 
 REST と同じビジネスロジックを WS でも公開する。
