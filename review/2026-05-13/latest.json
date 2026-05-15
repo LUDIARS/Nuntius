@@ -1,0 +1,108 @@
+{
+  "schema_version": "1.0",
+  "repo": "LUDIARS/Nuntius",
+  "review_date": "2026-05-13",
+  "reviewer": "claude-opus-4-7",
+  "scope": {
+    "focus": "Web Push relay (VAPID key management / unauthorized publisher prevention / subscription endpoint trust boundary)",
+    "paths_inspected": [
+      "README.md",
+      "CLAUDE.md",
+      "src/app.ts",
+      "src/worker.ts",
+      "src/channels/webpush.ts",
+      "src/routes/push.ts",
+      "src/routes/notify.ts",
+      "src/middleware/auth.ts",
+      "src/db/schema.ts",
+      "src/crypto/secret.ts"
+    ]
+  },
+  "grades": {
+    "design": "B",
+    "vulnerability": "C",
+    "implementation": "B",
+    "missing_features": "C",
+    "quality": "B"
+  },
+  "weights": {
+    "vulnerability": 0.30,
+    "implementation": 0.25,
+    "missing_features": 0.20,
+    "design": 0.15,
+    "quality": 0.10
+  },
+  "weighted_score": 2.55,
+  "weighted_scale": "A=4,B=3,C=2,D=1",
+  "findings_summary": {
+    "design": 5,
+    "vulnerability": 6,
+    "implementation": 8,
+    "missing_features": 8,
+    "quality": 8,
+    "total": 35
+  },
+  "key_findings": [
+    {
+      "id": "V-1",
+      "severity": "high",
+      "category": "vulnerability",
+      "title": "Push subscription endpoint allows SSRF",
+      "file": "src/routes/push.ts",
+      "line": "44-97",
+      "note": "endpoint URL is stored without scheme/host allowlist and later POSTed by web-push from the worker process"
+    },
+    {
+      "id": "V-2",
+      "severity": "high",
+      "category": "vulnerability",
+      "title": "endpoint/p256dh/auth stored in plaintext despite schema comment claiming AES-GCM encryption",
+      "file": "src/db/schema.ts",
+      "line": "225-256",
+      "note": "crypto/secret.ts exists but is not wired into push routes/dispatcher"
+    },
+    {
+      "id": "V-3",
+      "severity": "high",
+      "category": "vulnerability",
+      "title": "/vapid-public-key lacks keyId / rotation metadata and CORS origin can fall back to *",
+      "file": "src/routes/push.ts",
+      "line": "35-41"
+    },
+    {
+      "id": "V-4",
+      "severity": "medium",
+      "category": "vulnerability",
+      "title": "unique index on (userId, endpoint) lacks projectKey, allowing tenant crossover on renew",
+      "file": "src/db/schema.ts",
+      "line": "251-255"
+    },
+    {
+      "id": "M-1",
+      "severity": "high",
+      "category": "missing_features",
+      "title": "VAPID key rotation pipeline absent (boolean latch in ensureVapid + no keyId column)",
+      "file": "src/channels/webpush.ts",
+      "line": "33-47"
+    },
+    {
+      "id": "I-2",
+      "severity": "medium",
+      "category": "implementation",
+      "title": "Per-target dispatch loop is serial; one slow target blocks all subscriptions for the user",
+      "file": "src/channels/webpush.ts",
+      "line": "92-115"
+    }
+  ],
+  "autofix_count": 0,
+  "autofix_candidates": 10,
+  "review_files": [
+    "review/2026-05-13/REVIEW.md",
+    "review/2026-05-13/REVIEW_DESIGN.md",
+    "review/2026-05-13/REVIEW_VULNERABILITY.md",
+    "review/2026-05-13/REVIEW_IMPLEMENTATION.md",
+    "review/2026-05-13/REVIEW_MISSING_FEATURES.md",
+    "review/2026-05-13/REVIEW_QUALITY.md",
+    "review/2026-05-13/AUTOFIX.md"
+  ]
+}
