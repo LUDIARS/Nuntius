@@ -10,6 +10,12 @@ import { messagesRoutes } from "./routes/messages.js";
 import { topicsRoutes } from "./routes/topics.js";
 import { templatesRoutes } from "./routes/templates.js";
 import { inboxRoutes } from "./routes/inbox.js";
+import { deliveryLogsRoutes } from "./routes/delivery-logs.js";
+import { discordRoutes } from "./routes/discord.js";
+import { credentialsRoutes } from "./routes/credentials.js";
+import { pushRoutes } from "./routes/push.js";
+import { notifyRoutes } from "./routes/notify.js";
+import { mediaRoutes, mediaPublicRoutes } from "./routes/media.js";
 import { supportedChannels } from "./channels/index.js";
 import { setupWebSocket } from "./ws/handler.js";
 import { registerNuntiusCommands } from "./ws/register-commands.js";
@@ -34,6 +40,27 @@ export function createApp() {
   });
 
   app.use("*", logger());
+
+  // 構造化 access ログ
+  app.use("*", async (c, next) => {
+    const t0 = Date.now();
+    let thrown: unknown = undefined;
+    try { await next(); } catch (err) { thrown = err; throw err; }
+    finally {
+      const status = c.res?.status ?? (thrown ? 500 : 0);
+      const userId = (c.get("user" as never) as { id?: string } | undefined)?.id;
+      const entry: Record<string, unknown> = {
+        ts: new Date().toISOString(),
+        method: c.req.method, path: c.req.path,
+        status, durationMs: Date.now() - t0,
+      };
+      if (userId) entry.userId = userId;
+      if (thrown) entry.error = thrown instanceof Error ? thrown.message : String(thrown);
+      const tag = status >= 500 ? "[http-error]" : status >= 400 ? "[http-warn]" : "[http]";
+      console.log(`${tag} ${JSON.stringify(entry)}`);
+    }
+  });
+
   app.use("*", cors({
     origin: process.env.CORS_ORIGIN ?? "*",
     credentials: true,
@@ -57,11 +84,28 @@ export function createApp() {
   app.use("/api/topics/*", projectAuth());
   app.use("/api/templates/*", projectAuth());
   app.use("/api/inbox/*", projectAuth());
+  app.use("/api/delivery-logs/*", projectAuth());
+  app.use("/api/discord/*", projectAuth());
+  app.use("/api/credentials/*", projectAuth());
+  app.use("/api/notify/*", projectAuth());
+  app.use("/api/media/*", projectAuth());
+  app.use("/api/media", projectAuth());
+  // /api/push: vapid-public-key だけ認証不要、 それ以外は projectAuth
+  app.use("/api/push/subscriptions/*", projectAuth());
+  app.use("/api/push/subscriptions", projectAuth());
 
   app.route("/api/messages", messagesRoutes);
   app.route("/api/topics", topicsRoutes);
   app.route("/api/templates", templatesRoutes);
   app.route("/api/inbox", inboxRoutes);
+  app.route("/api/delivery-logs", deliveryLogsRoutes);
+  app.route("/api/discord", discordRoutes);
+  app.route("/api/credentials", credentialsRoutes);
+  app.route("/api/push", pushRoutes);
+  app.route("/api/notify", notifyRoutes);
+  app.route("/api/media", mediaRoutes);
+  // GET /media/:id は公開配信 (認証不要、 外部プラットフォームが取得する)
+  app.route("/media", mediaPublicRoutes);
 
   app.get("/", (c) => {
     return c.json({
@@ -69,10 +113,11 @@ export function createApp() {
       version: "0.1.0",
       description: "LUDIARS 統合通知・メッセージング基盤",
       endpoints: {
-        messages: "/api/messages/{schedule, :id}",
+        messages: "/api/messages (list / :schedule / :id / :id/logs)",
         topics: "/api/topics/:topic/{publish, subscribe}",
         templates: "/api/templates (CRUD / :id/render / mentions?channel=)",
         inbox: "/api/inbox?userId={id}",
+        delivery_logs: "/api/delivery-logs (list / stats?window=<min>)",
         ws: "/ws?token=<project_or_user_token> (nuntius.schedule|cancel|publish|subscribe|list_my)",
         health: "/api/health",
       },

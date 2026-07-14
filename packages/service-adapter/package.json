@@ -1,0 +1,22 @@
+{
+  "name": "@ludiars/nuntius-service-adapter",
+  "version": "0.1.0",
+  "description": "Nuntius notification client — Cernere project_credentials → Nuntius REST API wrapper for LUDIARS services (Actio / Imperativus / etc.)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist", "src", "README.md"],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

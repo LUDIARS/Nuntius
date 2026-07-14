@@ -20,19 +20,25 @@ import {
 
 // ─── Channel 型 ──────────────────────────────────────────────
 // 対応チャネル:
-//   slack / discord / line / webhook
+//   slack / discord (Webhook) / discord_bot / line / webhook
 //   email / sms / alexa / voice (Imperativus リレー)
 //   web: in-app 通知 (Nuntius に保存し、クライアントが REST で取得)
+//
+// Discord は 2 系統:
+//   discord     — Webhook URL 配信 (credentials: { webhookUrl, serverId? })
+//   discord_bot — Bot API 経由 (credentials: { botToken, channelId, serverId })
 export type ChannelType =
   | "slack"
   | "discord"
+  | "discord_bot"
   | "line"
   | "webhook"
   | "alexa"
   | "email"
   | "sms"
   | "voice"
-  | "web";
+  | "web"
+  | "webpush";
 
 export type MessageStatus =
   | "pending"    // キュー投入済、送信待ち
@@ -141,6 +147,13 @@ export const messageTemplates = pgTable(
      * 形式: [{ key, label, channelValues: { slack?: "<@U123>", discord?: "<@123>", line?: "@user", web?: "@name" } }]
      */
     mentions: jsonb("mentions").notNull().default([]),
+    /**
+     * 通知タイプ固有の設定 (default payload)
+     * 例: discord_bot → { credentialName: "default", channelId?: "..." }
+     *     email      → { from?: "...", replyTo?: "..." }
+     * 形状はチャネルごとに異なるため Record<string, unknown>。送信時に payload で override 可能。
+     */
+    channelConfig: jsonb("channel_config").notNull().default({}),
     projectKey: text("project_key").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -204,6 +217,73 @@ export const webNotifications = pgTable(
   ],
 );
 
+// ─── Push Subscriptions (Web Push API) ───────────────────────
+// Service Worker + PushManager.subscribe() で得た購読情報。 iOS 16.4+ /
+// Android Chrome / Desktop で動く。 ユーザは複数端末で購読し得るので、
+// (userId, endpoint) を unique key にする。
+//
+// 暗号化: NUNTIUS_ENCRYPTION_KEY が設定されていれば endpoint / keys を AES-GCM で
+// 暗号化する (channel_credentials と同じ方式)。 未設定なら平文 (dev のみ)。
+
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    /** PushManager 購読の endpoint URL (encrypted) */
+    endpoint: text("endpoint").notNull(),
+    /** ECDH P-256 公開鍵 (base64url, encrypted) */
+    p256dh: text("p256dh").notNull(),
+    /** Auth secret (base64url, encrypted) */
+    auth: text("auth").notNull(),
+    /** UA の User-Agent 文字列 (端末識別ヒント、 任意) */
+    userAgent: text("user_agent"),
+    /** ユーザが付ける端末ラベル (例: "iPhone 15 Pro") */
+    label: text("label"),
+    /** 最終配信成功時刻 (失敗継続で gone marker を立てる) */
+    lastDeliveredAt: timestamp("last_delivered_at", { withTimezone: true }),
+    /** 410 Gone 等で永続失敗が確定した時刻。 null = 有効 */
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    projectKey: text("project_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("idx_push_user").on(t.userId, t.revokedAt),
+    index("idx_push_project").on(t.projectKey),
+    uniqueIndex("unique_push_user_endpoint").on(t.userId, t.endpoint),
+  ],
+);
+
+// ─── Notification Preferences (どの channel で通知を受けたいか) ─────────
+// /api/notify/user (channel-agnostic) が「最適な channel を選ぶ」ために参照する。
+// per (userId, projectKey) の channel 優先順位を保持。
+// 例: { channels: ["webpush","line","web"], lineUserId: "U123...", lineCredential: "default" }
+
+export const notificationPreferences = pgTable(
+  "notification_preferences",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    /** 優先順位付きの channel 配列。 上から試行して endpoint がある最初の channel を採用 */
+    channels: jsonb("channels").$type<ChannelType[]>().notNull().default([]),
+    /** LINE userId (LINE Login + LINE Messaging API で得る) */
+    lineUserId: text("line_user_id"),
+    /** どの channel_credentials.name を使うか (default 既定) */
+    lineCredentialName: text("line_credential_name"),
+    /** Slack DM 用の slack user id */
+    slackUserId: text("slack_user_id"),
+    /** Email アドレス (Cernere に無い人用 / channel_credentials の from と別) */
+    email: text("email"),
+    projectKey: text("project_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("unique_notif_pref_user_project").on(t.userId, t.projectKey),
+  ],
+);
+
 // ─── Admin Access Logs (監査ログ) ──────────────────────────
 // admin ロールのユーザーが他ユーザーの通知データに触れた操作を記録する。
 // service-to-service (project_token) 呼び出しはサービス側で追跡するため、
@@ -236,6 +316,73 @@ export const adminAccessLogs = pgTable(
   ],
 );
 
+// ─── Channel Credentials (プラットフォーム認証情報) ───────
+// Slack / Discord / LINE / Alexa / SMS など、チャネル配信に必要な API 認証情報を
+// projectKey 単位で保持する。同一チャネルに複数設定を持てる (name で識別)。
+//
+// credentials の構造はチャネルごとに異なる:
+//   slack:   { webhookUrl }
+//   discord: { webhookUrl }
+//   line:    { channelAccessToken }
+//   alexa:   { clientId, clientSecret, scope?, endpoint? }
+//   sms:     { accessKeyId, secretAccessKey, region?, senderId? }
+
+export const channelCredentials = pgTable(
+  "channel_credentials",
+  {
+    id: text("id").primaryKey(),
+    projectKey: text("project_key").notNull(),
+    channel: text("channel").$type<ChannelType>().notNull(),
+    /** 同一チャネル内の識別名 (既定は "default") */
+    name: text("name").notNull().default("default"),
+    /** チャネル依存の認証情報 JSON */
+    credentials: jsonb("credentials").notNull().default({}),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("unique_channel_cred").on(t.projectKey, t.channel, t.name),
+    index("idx_channel_cred_lookup").on(t.projectKey, t.channel),
+  ],
+);
+
+// ─── Media Assets (ホストアップロードされたメディア実体) ───
+// `POST /api/media` でアップロードされた画像 / 動画 / ファイルのメタ情報。
+// 実体は storageBackend (s3 / local) に置き、 ここではメタのみ持つ。
+// payload.attachments[].mediaId からこの行を引いて配信時に URL を解決する。
+// expiresAt 経過後はクリーンアップ対象 (実体 + 行を削除)。
+
+export const mediaAssets = pgTable(
+  "media_assets",
+  {
+    id: text("id").primaryKey(),
+    projectKey: text("project_key").notNull(),
+    /** アップロード主体 (任意、 right-to-delete 用) */
+    userId: text("user_id"),
+    kind: text("kind").$type<"image" | "video" | "audio" | "file">().notNull(),
+    mimeType: text("mime_type").notNull(),
+    fileName: text("file_name"),
+    /** bytes */
+    size: integer("size").notNull(),
+    /** "s3" | "local" */
+    storageBackend: text("storage_backend").notNull(),
+    /** バックエンド内のキー (S3 object key / local 相対パス) */
+    storageKey: text("storage_key").notNull(),
+    /** 整合性確認 / 重複排除用 */
+    sha256: text("sha256"),
+    /** TTL: 経過後にクリーンアップ対象。 null = 無期限 */
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("idx_media_project").on(t.projectKey),
+    index("idx_media_user").on(t.userId),
+    index("idx_media_expires").on(t.expiresAt),
+    index("idx_media_sha256").on(t.projectKey, t.sha256),
+  ],
+);
+
 // ─── Types ────────────────────────────────────────────────
 
 export type ScheduledMessage = typeof scheduledMessages.$inferSelect;
@@ -250,3 +397,7 @@ export type WebNotification = typeof webNotifications.$inferSelect;
 export type NewWebNotification = typeof webNotifications.$inferInsert;
 export type AdminAccessLog = typeof adminAccessLogs.$inferSelect;
 export type NewAdminAccessLog = typeof adminAccessLogs.$inferInsert;
+export type ChannelCredential = typeof channelCredentials.$inferSelect;
+export type NewChannelCredential = typeof channelCredentials.$inferInsert;
+export type MediaAsset = typeof mediaAssets.$inferSelect;
+export type NewMediaAsset = typeof mediaAssets.$inferInsert;

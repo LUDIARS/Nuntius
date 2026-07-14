@@ -6,10 +6,13 @@
  *   method:  "POST" | "PUT"    (default: "POST")
  *   headers: Record<string,string> (任意)
  *   body:    unknown            — JSON 本体
+ *   attachments?: MediaAttachment[]  — 解決済み URL 付きで body.attachments に同梱。
+ *                                     受け側がメディアを取得して扱う。
  */
 
 import type { ChannelDispatcher, DispatchResult } from "./types.js";
 import type { ScheduledMessage } from "../db/schema.js";
+import { dispatchableAttachments } from "../media/attachment.js";
 
 export const webhookDispatcher: ChannelDispatcher = {
   channel: "webhook",
@@ -24,11 +27,23 @@ export const webhookDispatcher: ChannelDispatcher = {
       ...((p.headers as Record<string, string> | undefined) ?? {}),
     };
 
+    // attachments があれば body に同梱する。 body がオブジェクトならマージ、
+    // それ以外なら attachments のみのオブジェクトにする。
+    const attachments = dispatchableAttachments(p);
+    let outBody: unknown = p.body ?? {};
+    if (attachments.length > 0) {
+      const base =
+        outBody && typeof outBody === "object" && !Array.isArray(outBody)
+          ? (outBody as Record<string, unknown>)
+          : {};
+      outBody = { ...base, attachments };
+    }
+
     try {
       const res = await fetch(url, {
         method,
         headers,
-        body: JSON.stringify(p.body ?? {}),
+        body: JSON.stringify(outBody),
       });
       const responseText = await res.text().catch(() => "");
       return {

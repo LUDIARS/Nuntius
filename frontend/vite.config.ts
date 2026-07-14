@@ -3,7 +3,10 @@ import react from '@vitejs/plugin-react'
 
 const frontendPort = parseInt(process.env.FRONTEND_PORT || '5175', 10)
 const backendPort = process.env.BACKEND_PORT || '3100'
-const extraHosts = process.env.VITE_ALLOWED_HOSTS?.split(',').filter(Boolean) || []
+const extraHosts = [
+  ...(process.env.VITE_ALLOWED_HOSTS?.split(',').filter(Boolean) ?? []),
+  ...(process.env.LUDIARS_ALLOWED_HOSTS?.split(',').map(s => s.trim()).filter(Boolean) ?? []),
+]
 
 type ProxyLike = {
   on: (event: string, cb: (...args: unknown[]) => void) => unknown

@@ -14,6 +14,8 @@ import { DISPATCH_QUEUE_NAME, enqueueMessage, type DispatchJobData } from "./que
 import { computeNextSendAt } from "./queue/recurrence.js";
 import { resolveTemplate } from "./queue/pattern-resolver.js";
 import { getDispatcher } from "./channels/index.js";
+import { applyChannelFormat } from "./channels/formatters/index.js";
+import { resolveAttachmentsInPayload } from "./media/resolve.js";
 
 async function processDispatch(job: Job<DispatchJobData>): Promise<void> {
   const { messageId } = job.data;
@@ -47,9 +49,21 @@ async function processDispatch(job: Job<DispatchJobData>): Promise<void> {
     return;
   }
 
-  // templateId があればパターンを解決し payload にレンダー結果を差し込む
+  // templateId があればパターンを解決し payload にレンダー結果を差し込む。
+  // その後、チャネル固有のフォーマッタ (Slack mrkdwn / LINE plaintext /
+  // SMS 長さ制限 / Email html↔text 補完 等) を適用し、 最後に
+  // payload.attachments[] の mediaId を実 URL に解決してから dispatcher に渡す。
   const resolvedMsg = await resolveTemplate(msg);
-  const result = await dispatcher.dispatch(resolvedMsg);
+  const formattedPayload = applyChannelFormat(
+    resolvedMsg.channel,
+    (resolvedMsg.payload ?? {}) as Record<string, unknown>,
+  );
+  const mediaResolvedPayload = await resolveAttachmentsInPayload(
+    formattedPayload,
+    msg.projectKey,
+  );
+  const dispatchMsg = { ...resolvedMsg, payload: mediaResolvedPayload };
+  const result = await dispatcher.dispatch(dispatchMsg);
   await logDelivery(
     messageId,
     msg.channel,

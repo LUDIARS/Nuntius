@@ -2,40 +2,51 @@
  * SMS 配信 (AWS SNS)
  *
  * payload:
- *   to:   string  — E.164 形式の電話番号 (例: +819012345678)
- *   text: string  — 本文
+ *   to:             string  — E.164 形式の電話番号 (例: +819012345678)
+ *   text:           string  — 本文
+ *   credentialName: string  — channel_credentials.name を参照 (省略時 "default")
+ *   attachments?:   MediaAttachment[]  — SNS は MMS 非対応のため、 本文末尾に
+ *                                       URL を追記する degrade のみ
  *
- * 環境変数:
- *   AWS_REGION            (既定: us-east-1)
- *   AWS_ACCESS_KEY_ID
- *   AWS_SECRET_ACCESS_KEY
- *   SMS_SENDER_ID         (任意: SNS Origination Number / Sender ID)
+ * credentials (JSONB):
+ *   { accessKeyId, secretAccessKey, region?, senderId? }
+ *     - region    (既定: "us-east-1")
+ *     - senderId  (任意: SNS Origination Number / Sender ID)
  *
  * AWS 認証情報が未設定の場合は dev モードでログのみ出力する。
  */
 
 import type { ChannelDispatcher, DispatchResult } from "./types.js";
 import type { ScheduledMessage } from "../db/schema.js";
+import { loadChannelCredentials } from "./credentials.js";
+import { dispatchableAttachments } from "../media/attachment.js";
 
-let snsClientPromise: Promise<unknown> | null = null;
+interface SmsCreds {
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  region?: string;
+  senderId?: string;
+}
 
-async function getSnsClient(): Promise<{
+let snsModPromise: Promise<unknown> | null = null;
+
+async function getSnsClient(creds: SmsCreds): Promise<{
   client: unknown;
   PublishCommand: unknown;
 } | null> {
-  const accessKey = process.env.AWS_ACCESS_KEY_ID ?? "";
-  const secretKey = process.env.AWS_SECRET_ACCESS_KEY ?? "";
+  const accessKey = creds.accessKeyId ?? "";
+  const secretKey = creds.secretAccessKey ?? "";
   if (!accessKey || !secretKey) return null;
 
   try {
-    if (!snsClientPromise) {
-      snsClientPromise = import("@aws-sdk/client-sns");
+    if (!snsModPromise) {
+      snsModPromise = import("@aws-sdk/client-sns");
     }
-    const mod = (await snsClientPromise) as {
+    const mod = (await snsModPromise) as {
       SNSClient: new (cfg: Record<string, unknown>) => unknown;
       PublishCommand: new (input: Record<string, unknown>) => unknown;
     };
-    const region = process.env.AWS_REGION ?? "us-east-1";
+    const region = creds.region ?? "us-east-1";
     const client = new mod.SNSClient({
       region,
       credentials: { accessKeyId: accessKey, secretAccessKey: secretKey },
@@ -55,22 +66,36 @@ export const smsDispatcher: ChannelDispatcher = {
   async dispatch(message: ScheduledMessage): Promise<DispatchResult> {
     const p = message.payload as Record<string, unknown>;
     const to = p.to as string | undefined;
-    const text = p.text as string | undefined;
-    if (!to || !text) {
+    const baseText = p.text as string | undefined;
+    if (!to || !baseText) {
       return { success: false, error: "sms payload requires 'to' and 'text'" };
     }
     if (!to.startsWith("+")) {
       return { success: false, error: "sms 'to' must be E.164 format (+countrycode...)" };
     }
 
-    const sns = await getSnsClient();
+    // SNS は MMS 非対応 → 添付は本文末尾に URL を追記する degrade
+    const attachmentUrls = dispatchableAttachments(p).map((a) => a.url);
+    const text =
+      attachmentUrls.length > 0
+        ? `${baseText}\n${attachmentUrls.join("\n")}`
+        : baseText;
+
+    const credName = (p.credentialName as string | undefined) ?? "default";
+    const creds = (await loadChannelCredentials<SmsCreds>(
+      message.projectKey,
+      "sms",
+      credName,
+    )) ?? {};
+
+    const sns = await getSnsClient(creds);
     if (!sns) {
       console.log(`[sms:dev] to=${to} text="${text}"`);
-      return { success: true, responseBody: "dev mode (AWS credentials not configured)" };
+      return { success: true, responseBody: "dev mode (sms credentials not configured)" };
     }
 
     try {
-      const senderId = process.env.SMS_SENDER_ID;
+      const senderId = creds.senderId;
       const attrs: Record<string, unknown> = {
         "AWS.SNS.SMS.SMSType": { DataType: "String", StringValue: "Transactional" },
       };

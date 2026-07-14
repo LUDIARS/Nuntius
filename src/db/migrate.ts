@@ -88,6 +88,7 @@ export async function ensureSchema(): Promise<void> {
   // 後方互換: 既存テーブルに新カラムを追加 (冪等)
   await pgClient`ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS description TEXT`;
   await pgClient`ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS mentions JSONB NOT NULL DEFAULT '[]'`;
+  await pgClient`ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS channel_config JSONB NOT NULL DEFAULT '{}'`;
   await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS unique_template_name ON message_templates(project_key, name, channel, locale)`;
 
   // delivery_logs
@@ -145,6 +146,44 @@ export async function ensureSchema(): Promise<void> {
   await pgClient`CREATE INDEX IF NOT EXISTS idx_admin_access_actor ON admin_access_logs(actor_user_id, created_at)`;
   await pgClient`CREATE INDEX IF NOT EXISTS idx_admin_access_project ON admin_access_logs(project_key, created_at)`;
   await pgClient`CREATE INDEX IF NOT EXISTS idx_admin_access_target ON admin_access_logs(target_user_id, created_at)`;
+
+  // channel_credentials (チャネル配信用プラットフォーム認証情報)
+  await pgClient`
+    CREATE TABLE IF NOT EXISTS channel_credentials (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT 'default',
+      credentials JSONB NOT NULL DEFAULT '{}',
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS unique_channel_cred ON channel_credentials(project_key, channel, name)`;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_channel_cred_lookup ON channel_credentials(project_key, channel)`;
+
+  // media_assets (ホストアップロードされたメディア実体のメタ)
+  await pgClient`
+    CREATE TABLE IF NOT EXISTS media_assets (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      user_id TEXT,
+      kind TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      file_name TEXT,
+      size INTEGER NOT NULL,
+      storage_backend TEXT NOT NULL,
+      storage_key TEXT NOT NULL,
+      sha256 TEXT,
+      expires_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_media_project ON media_assets(project_key)`;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_media_user ON media_assets(user_id)`;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_media_expires ON media_assets(expires_at)`;
+  await pgClient`CREATE INDEX IF NOT EXISTS idx_media_sha256 ON media_assets(project_key, sha256)`;
 
   console.log("[db] schema 確認完了");
 }

@@ -12,33 +12,43 @@
  *   }
  *   expiryTime?:     string  — ISO 8601 (既定: now + 24h)
  *   localizedAttributes?: Array<{ locale: string; ... }>
+ *   credentialName:  string  — channel_credentials.name を参照 (省略時 "default")
  *
- * 環境変数:
- *   ALEXA_CLIENT_ID       — LWA client_id (security profile)
- *   ALEXA_CLIENT_SECRET   — LWA client_secret
- *   ALEXA_ENDPOINT        — 既定: https://api.amazonalexa.com
- *   ALEXA_LWA_SCOPE       — 既定: alexa::proactive_events
+ * credentials (JSONB):
+ *   { clientId, clientSecret, scope?, endpoint? }
+ *     - scope     (既定: "alexa::proactive_events")
+ *     - endpoint  (既定: "https://api.amazonalexa.com")
  *
  * 認証情報が揃わない場合は dev モードでログのみ出力する。
  */
 
 import type { ChannelDispatcher, DispatchResult } from "./types.js";
 import type { ScheduledMessage } from "../db/schema.js";
+import { loadChannelCredentials } from "./credentials.js";
 
 const LWA_TOKEN_URL = "https://api.amazon.com/auth/o2/token";
 
-let cachedToken: { token: string; expiresAt: number } | null = null;
+interface AlexaCreds {
+  clientId?: string;
+  clientSecret?: string;
+  scope?: string;
+  endpoint?: string;
+}
 
-async function getLwaToken(): Promise<string | null> {
-  const clientId = process.env.ALEXA_CLIENT_ID ?? "";
-  const clientSecret = process.env.ALEXA_CLIENT_SECRET ?? "";
+// LWA トークンは (projectKey + credentialName) 単位でキャッシュ
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+
+async function getLwaToken(cacheKey: string, creds: AlexaCreds): Promise<string | null> {
+  const clientId = creds.clientId ?? "";
+  const clientSecret = creds.clientSecret ?? "";
   if (!clientId || !clientSecret) return null;
 
-  if (cachedToken && cachedToken.expiresAt > Date.now()) {
-    return cachedToken.token;
+  const cached = tokenCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.token;
   }
 
-  const scope = process.env.ALEXA_LWA_SCOPE ?? "alexa::proactive_events";
+  const scope = creds.scope ?? "alexa::proactive_events";
   const body = new URLSearchParams({
     grant_type: "client_credentials",
     client_id: clientId,
@@ -58,10 +68,10 @@ async function getLwaToken(): Promise<string | null> {
   }
 
   const data = (await res.json()) as { access_token: string; expires_in: number };
-  cachedToken = {
+  tokenCache.set(cacheKey, {
     token: data.access_token,
     expiresAt: Date.now() + (data.expires_in - 60) * 1000, // 1 分早めに更新
-  };
+  });
   return data.access_token;
 }
 
@@ -77,16 +87,22 @@ export const alexaDispatcher: ChannelDispatcher = {
       return { success: false, error: "alexa payload requires 'event.name'" };
     }
 
-    const clientId = process.env.ALEXA_CLIENT_ID ?? "";
-    const clientSecret = process.env.ALEXA_CLIENT_SECRET ?? "";
+    const credName = (p.credentialName as string | undefined) ?? "default";
+    const creds = (await loadChannelCredentials<AlexaCreds>(
+      message.projectKey,
+      "alexa",
+      credName,
+    )) ?? {};
+    const clientId = creds.clientId ?? "";
+    const clientSecret = creds.clientSecret ?? "";
     if (!clientId || !clientSecret) {
       console.log(`[alexa:dev] userId=${userId} event=${eventObj.name} (LWA 未設定)`);
-      return { success: true, responseBody: "dev mode (ALEXA_CLIENT_ID/SECRET not configured)" };
+      return { success: true, responseBody: "dev mode (alexa credentials not configured)" };
     }
 
     let token: string | null;
     try {
-      token = await getLwaToken();
+      token = await getLwaToken(`${message.projectKey}:${credName}`, creds);
     } catch (err) {
       return {
         success: false,
@@ -97,7 +113,7 @@ export const alexaDispatcher: ChannelDispatcher = {
       return { success: false, error: "failed to obtain LWA token" };
     }
 
-    const endpoint = process.env.ALEXA_ENDPOINT ?? "https://api.amazonalexa.com";
+    const endpoint = creds.endpoint ?? "https://api.amazonalexa.com";
     const now = new Date();
     const expiry = (p.expiryTime as string | undefined)
       ?? new Date(now.getTime() + 24 * 3600 * 1000).toISOString();
