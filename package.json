@@ -45,7 +45,7 @@
     "hono": "^4.12.8",
     "ioredis": "^5.10.0",
     "jsonwebtoken": "^9.0.3",
-    "nodemailer": "^6.9.18",
+    "nodemailer": "^9.0.3",
     "postgres": "^3.4.8",
     "uuid": "^13.0.0",
     "web-push": "^3.6.7",
