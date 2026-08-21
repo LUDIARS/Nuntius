@@ -1,0 +1,20 @@
+{
+  "name": "service-runtime",
+  "description": "プロセスとしての Nuntius。 起動と配線、 共有ユーティリティ。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "^src/lib/(?:.*/)?[^/]+$"
+    },
+    {
+      "pathPattern": "^src/(?:index|app|bootstrap|service-adapter)\\.ts$"
+    },
+    {
+      "pathPattern": "^tests?/(?:.*/)?[^/]+$"
+    },
+    {
+      "pathPattern": "^scripts/(?:.*/)?[^/]+$"
+    }
+  ]
+}

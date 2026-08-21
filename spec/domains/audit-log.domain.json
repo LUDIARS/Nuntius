@@ -1,0 +1,11 @@
+{
+  "name": "audit-log",
+  "description": "送信の証跡。 いつ何をどこへ送ったかの記録。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "^src/audit/(?:.*/)?[^/]+$"
+    }
+  ]
+}

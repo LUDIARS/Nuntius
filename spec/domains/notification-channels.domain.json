@@ -1,0 +1,11 @@
+{
+  "name": "notification-channels",
+  "description": "通知の配信先ごとの実装。 チャンネル種別ごとに送信の作法を閉じる。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "^src/channels/(?:.*/)?[^/]+$"
+    }
+  ]
+}

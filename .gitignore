@@ -5,3 +5,6 @@ dist/
 *.log
 .DS_Store
 *.stackdump
+
+# Anatomia のローカル状態 (ドメイン定義の正本は spec/domains/)
+.anatomia/

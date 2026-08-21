@@ -1,0 +1,14 @@
+{
+  "name": "identity-access",
+  "description": "認証と権限。 送信元の識別と許可、 秘匿値の取り扱い。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "^src/auth/(?:.*/)?[^/]+$"
+    },
+    {
+      "pathPattern": "^src/crypto/(?:.*/)?[^/]+$"
+    }
+  ]
+}

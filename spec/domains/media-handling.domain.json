@@ -1,0 +1,11 @@
+{
+  "name": "media-handling",
+  "description": "添付メディアの取り扱い。 保存と参照。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "^src/media/(?:.*/)?[^/]+$"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "delivery-queue",
+  "description": "配信の実行制御。 キューイングとワーカー、 再送の扱い。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "^src/queue/(?:.*/)?[^/]+$"
+    },
+    {
+      "pathPattern": "^src/worker\\.ts$"
+    }
+  ]
+}

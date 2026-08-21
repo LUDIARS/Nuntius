@@ -1,0 +1,11 @@
+{
+  "name": "web-frontend",
+  "description": "ブラウザ側の画面。 通知の一覧と設定。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "^frontend/(?:.*/)?[^/]+$"
+    }
+  ]
+}
